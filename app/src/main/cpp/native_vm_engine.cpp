@@ -38,11 +38,25 @@ NativeVMEngine::~NativeVMEngine() {
     destroy();
 }
 
-void NativeVMEngine::loadBootPayload() {
-    if (!cpu) return;
+bool NativeVMEngine::loadBootPayload() {
+    if (!cpu) return false;
 
     std::string bootLog;
-    NativeLinuxBootLoader::loadLinuxGuest(bootConfig, memory, *cpu, devices, bootLog);
+    bool ok = NativeLinuxBootLoader::loadLinuxGuest(bootConfig, memory, *cpu, devices, bootLog);
+    if (!ok) {
+        // Report exact missing component to the virtual UART console
+        for (char c : bootLog) {
+            devices.getUART().writeByte(static_cast<uint8_t>(c));
+        }
+        backendStatus = bootLog;
+        return false;
+    }
+
+    // Write boot initialization message to UART
+    for (char c : bootLog) {
+        devices.getUART().writeByte(static_cast<uint8_t>(c));
+    }
+    return true;
 }
 
 bool NativeVMEngine::configure() {
@@ -59,23 +73,14 @@ bool NativeVMEngine::configure() {
         devices.getDisk().openRawDisk(diskImagePath, false, "", err);
     }
 
-    // Initialize real guest shell engine with dynamic VFS and live system metrics
-    guestShell = std::make_unique<GuestLinuxShell>(
-        cores,
-        ramMb * 1024ULL * 1024ULL,
-        diskImagePath,
-        devices.getDisk().getSizeBytes(),
-        cpu ? cpu->getBackendDescription() : "Emulation"
-    );
-
-    guestShell->setOutputCallback([this](const std::string& text) {
-        for (char c : text) {
-            devices.getUART().writeByte(static_cast<uint8_t>(c));
-        }
-    });
-
     if (cpu) cpu->reset();
-    loadBootPayload();
+    bool loaded = loadBootPayload();
+    if (!loaded) {
+        // If boot payload failed to load (e.g. missing kernel), flag error state
+        state = VMNativeState::ERROR;
+        return false;
+    }
+
     state = VMNativeState::CREATED;
     return true;
 }
@@ -135,7 +140,6 @@ void NativeVMEngine::destroy() {
     devices.getDisk().closeDisk();
     memory.reset();
     devices.resetAll();
-    guestShell.reset();
 }
 
 int NativeVMEngine::stepCycles(int maxCycles) {
@@ -171,13 +175,8 @@ void NativeVMEngine::writeSerialRx(uint8_t byte) {
         return;
     }
 
-    // Queue character directly into PL011 UART RX buffer for guest kernel/userspace
+    // Deliver keyboard input exclusively to guest UART RX register
     devices.getUART().queueRxByte(byte);
-
-    // Also dispatch to guest userspace shell
-    if (guestShell) {
-        guestShell->handleCharInput(byte);
-    }
 }
 
 const uint32_t* NativeVMEngine::getFramebuffer() const {

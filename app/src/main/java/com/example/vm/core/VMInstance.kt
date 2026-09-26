@@ -30,7 +30,7 @@ class VMInstance(
     val config: VMConfig,
     val onStateChanged: (VMState) -> Unit
 ) {
-    private val _state = MutableStateFlow(VMState.CREATED)
+    private val _state = MutableStateFlow(VMState.READY)
     val state: StateFlow<VMState> = _state.asStateFlow()
 
     var nativeHandle: Long = 0L
@@ -138,26 +138,38 @@ class VMInstance(
         }
     }
 
-    fun configure() {
+    fun configure(): Boolean {
         if (nativeHandle != 0L) {
-            NativeVMBinding.nativeConfigure(nativeHandle)
-            setVMState(VMState.CREATED)
+            val configured = NativeVMBinding.nativeConfigure(nativeHandle)
+            if (!configured) {
+                setVMState(VMState.ERROR)
+                return false
+            } else {
+                setVMState(VMState.READY)
+                return true
+            }
         } else {
             memory.reset()
             cpu.reset()
             deviceManager.resetAll()
-            setVMState(VMState.CREATED)
+            setVMState(VMState.READY)
 
             val binaryPayload = assembleBootloaderBinary()
             memory.loadBinary(0L, binaryPayload)
+            return true
         }
     }
 
-    fun start() {
-        if (_state.value != VMState.CREATED && _state.value != VMState.STOPPED) return
+    fun start(): Boolean {
+        if (_state.value != VMState.READY && _state.value != VMState.STOPPED) return false
 
         if (nativeHandle != 0L) {
-            NativeVMBinding.nativeStart(nativeHandle)
+            setVMState(VMState.BOOTING)
+            val started = NativeVMBinding.nativeStart(nativeHandle)
+            if (!started) {
+                setVMState(VMState.ERROR)
+                return false
+            }
             setVMState(VMState.RUNNING)
 
             executionJob?.cancel()
@@ -191,10 +203,12 @@ class VMInstance(
                     delay(10)
                 }
             }
+            return true
         } else {
-            setVMState(VMState.RUNNING)
+            setVMState(VMState.BOOTING)
             cpu.isHalted = false
             cpu.isPaused = false
+            setVMState(VMState.RUNNING)
 
             executionJob?.cancel()
             executionJob = instanceScope.launch {
@@ -221,55 +235,69 @@ class VMInstance(
                     delay(1)
                 }
             }
+            return true
         }
     }
 
-    fun pause() {
-        if (_state.value == VMState.RUNNING) {
+    fun pause(): Boolean {
+        if (_state.value == VMState.RUNNING || _state.value == VMState.BOOTING) {
             if (nativeHandle != 0L) {
-                NativeVMBinding.nativePause(nativeHandle)
+                val ok = NativeVMBinding.nativePause(nativeHandle)
+                if (!ok) return false
             } else {
                 cpu.isPaused = true
             }
             setVMState(VMState.PAUSED)
+            return true
         }
+        return false
     }
 
-    fun resume() {
+    fun resume(): Boolean {
         if (_state.value == VMState.PAUSED) {
             if (nativeHandle != 0L) {
-                NativeVMBinding.nativeResume(nativeHandle)
+                val ok = NativeVMBinding.nativeResume(nativeHandle)
+                if (!ok) {
+                    setVMState(VMState.ERROR)
+                    return false
+                }
                 setVMState(VMState.RUNNING)
-                start()
+                return start()
             } else {
                 cpu.isPaused = false
                 setVMState(VMState.RUNNING)
-                start()
+                return start()
             }
         }
+        return false
     }
 
-    fun stop(): String? {
+    fun stop(): Boolean {
         if (nativeHandle != 0L) {
             NativeVMBinding.nativeStop(nativeHandle)
         } else {
             cpu.isHalted = true
         }
         executionJob?.cancel()
+        executionJob = null
         consoleBackend.notifyVmShutdown()
         setVMState(VMState.STOPPED)
-        return null
+        return true
     }
 
-    fun reset() {
+    fun reset(): Boolean {
         stop()
         if (nativeHandle != 0L) {
-            NativeVMBinding.nativeReset(nativeHandle)
-            setVMState(VMState.RUNNING)
-            start()
+            val ok = NativeVMBinding.nativeReset(nativeHandle)
+            if (!ok) {
+                setVMState(VMState.ERROR)
+                return false
+            }
+            return start()
         } else {
-            configure()
-            start()
+            val configured = configure()
+            if (!configured) return false
+            return start()
         }
     }
 
@@ -285,11 +313,11 @@ class VMInstance(
 
     private fun mapNativeState(code: Int): VMState {
         return when (code) {
-            0 -> VMState.CREATED
-            1 -> VMState.STARTING
+            0 -> VMState.READY
+            1 -> VMState.BOOTING
             2 -> VMState.RUNNING
             3 -> VMState.PAUSED
-            4 -> VMState.STOPPING
+            4 -> VMState.STOPPED
             5 -> VMState.STOPPED
             else -> VMState.ERROR
         }
@@ -304,16 +332,15 @@ class VMInstance(
             ops.add(((value shr 24) and 0xFF).toByte())
         }
 
+        // Inform the user on the UART that a custom ARM64 kernel is required
         emit32(0xD2800000L or (0x0900L shl 5) or 1L)
-        val banner = "=== MobileVM ARM64 Microkernel Initialized ===\n" +
-                     "[Init] Booting interpreter vCPU\n" +
-                     "[Init] Mounted rootfs (4KB memory blocks)\n" +
-                     "guest@mobilevm:~$ "
-        for (char in banner) {
+        val notice = "NOT IMPLEMENTED: No ARM64 Linux kernel image configured.\n" +
+                     "Please import or specify an authentic ARM64 Linux Kernel Image to boot.\n"
+        for (char in notice) {
             emit32(0xD2800000L or ((char.code.toLong() and 0xFFFFL) shl 5) or 3L)
             emit32(0x39000000L or (1L shl 5) or 3L)
         }
-        emit32(0xD4400000L)
+        emit32(0xD4400000L) // HLT #0
         return ops.toByteArray()
     }
 }

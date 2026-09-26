@@ -19,11 +19,11 @@ object GuestInitramfsManager {
     fun inspectInitramfs(initramfsPath: String): InitramfsInfo {
         if (initramfsPath.isEmpty()) {
             return InitramfsInfo(
-                path = "Embedded Minimal RAM Shell",
-                exists = true,
-                sizeBytes = 16384L,
+                path = "",
+                exists = false,
+                sizeBytes = 0L,
                 isCompressed = false,
-                format = "Built-in /init binary"
+                format = "No initramfs configured"
             )
         }
 
@@ -50,7 +50,7 @@ object GuestInitramfsManager {
             exists = exists,
             sizeBytes = size,
             isCompressed = isGzip,
-            format = if (isGzip) "CPIO archive (gzip compressed)" else "CPIO / Raw Ramfs"
+            format = if (isGzip) "CPIO archive (gzip compressed)" else if (exists) "CPIO / Raw Ramfs" else "File Not Found"
         )
     }
 }

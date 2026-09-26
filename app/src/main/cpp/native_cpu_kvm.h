@@ -20,10 +20,10 @@ public:
     uint64_t runCycles(NativeMemory& memory, NativeDeviceManager& devices, uint64_t maxCycles) override;
 
     uint64_t getPC() const override { return pc; }
-    void setPC(uint64_t val) override { pc = val; }
+    void setPC(uint64_t val) override;
 
     uint64_t getSP() const override { return sp; }
-    void setSP(uint64_t val) override { sp = val; }
+    void setSP(uint64_t val) override;
 
     uint64_t getRegister(uint32_t index) const override;
     void setRegister(uint32_t index, uint64_t value) override;
@@ -51,6 +51,8 @@ private:
     NativeCPUState state;
 
     bool initKvmVcpu(NativeMemory& memory);
+    bool syncRegistersToKvm();
+    bool syncRegistersFromKvm();
     void handleMmioExit(NativeMemory& memory, NativeDeviceManager& devices);
 };
 

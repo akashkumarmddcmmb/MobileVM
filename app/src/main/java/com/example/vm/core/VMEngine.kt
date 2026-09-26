@@ -7,6 +7,8 @@ import com.example.vm.cpu.GuestArchitecture
 import com.example.vm.cpu.HostArchitecture
 import com.example.vm.display.DisplayBackend
 import com.example.vm.display.VirtioGPUBitmapDisplayBackend
+import com.example.vm.guest.initramfs.GuestInitramfsManager
+import com.example.vm.guest.kernel.GuestKernelManager
 import com.example.vm.memory.MemoryManager
 import com.example.vm.storage.AndroidStorageDiskBackend
 import com.example.vm.input.InputBackend
@@ -50,7 +52,7 @@ class VMEngine(
 
     fun getActiveInstance(): VMInstance? = instance
 
-    private val _state = MutableStateFlow(VMState.CREATED)
+    private val _state = MutableStateFlow(VMState.READY)
     val state: StateFlow<VMState> = _state.asStateFlow()
 
     private val _lastError = MutableStateFlow<VMError?>(null)
@@ -101,8 +103,14 @@ class VMEngine(
             return err
         }
 
-        // 2. Virtual Disk existence & readability validation
+        // 2. Virtual Disk existence, sandbox containment & readability validation
         if (config.diskImagePath.isNotEmpty()) {
+            if (!diskBackend.isGuestImagePathAuthorized(config.diskImagePath) && !diskBackend.isPathAuthorized(config.diskImagePath)) {
+                val err = VMError.diskInvalid(config.diskImagePath, "Security Violation: Disk image path is outside authorized application storage.")
+                _state.value = VMState.ERROR
+                _lastError.value = err
+                return err
+            }
             val file = File(config.diskImagePath)
             if (!file.exists()) {
                 val err = VMError.diskInvalid(config.diskImagePath, "Virtual disk file does not exist on disk storage.")
@@ -118,27 +126,54 @@ class VMEngine(
             }
         }
 
-        // 3. Custom Linux Kernel image validation (if configured)
-        if (config.kernelImagePath.isNotEmpty()) {
-            val kFile = File(config.kernelImagePath)
-            if (!kFile.exists()) {
-                val err = VMError.kernelMissing(config.kernelImagePath, "File does not exist on Android filesystem.")
-                _state.value = VMState.ERROR
-                _lastError.value = err
-                return err
-            }
-            if (!kFile.canRead()) {
-                val err = VMError.kernelMissing(config.kernelImagePath, "Read permission denied for kernel file.")
-                _state.value = VMState.ERROR
-                _lastError.value = err
-                return err
-            }
+        // 3. Genuine ARM64 Linux Kernel validation & sandbox enforcement
+        if (config.kernelImagePath.isEmpty()) {
+            val err = VMError.kernelMissing(
+                path = "(none)",
+                details = "NOT IMPLEMENTED: An authentic ARM64 Linux Kernel Image must be imported before booting."
+            )
+            _state.value = VMState.NOT_VERIFIED
+            _lastError.value = err
+            return err
         }
 
-        // 4. Custom Initramfs validation (if configured)
+        if (!diskBackend.isGuestImagePathAuthorized(config.kernelImagePath)) {
+            val err = VMError.kernelMissing(
+                config.kernelImagePath,
+                "Security Violation: Kernel path is outside authorized application storage."
+            )
+            _state.value = VMState.ERROR
+            _lastError.value = err
+            return err
+        }
+
+        val kernelInfo = GuestKernelManager.inspectKernel(config.kernelImagePath)
+        if (!kernelInfo.exists) {
+            val err = VMError.kernelMissing(config.kernelImagePath, "Kernel file does not exist on storage.")
+            _state.value = VMState.ERROR
+            _lastError.value = err
+            return err
+        }
+        if (!kernelInfo.isArm64Valid) {
+            val err = VMError.kernelMissing(
+                config.kernelImagePath,
+                "File format error: Not a valid ARM64 Linux Kernel binary (${kernelInfo.formatDescription})."
+            )
+            _state.value = VMState.ERROR
+            _lastError.value = err
+            return err
+        }
+
+        // 4. Custom Initramfs validation & sandbox enforcement (if configured)
         if (config.initramfsPath.isNotEmpty()) {
-            val initrdFile = File(config.initramfsPath)
-            if (!initrdFile.exists() || !initrdFile.canRead()) {
+            if (!diskBackend.isGuestImagePathAuthorized(config.initramfsPath)) {
+                val err = VMError.initramfsMissing(config.initramfsPath)
+                _state.value = VMState.ERROR
+                _lastError.value = err
+                return err
+            }
+            val initrdInfo = GuestInitramfsManager.inspectInitramfs(config.initramfsPath)
+            if (!initrdInfo.exists || initrdInfo.sizeBytes == 0L) {
                 val err = VMError.initramfsMissing(config.initramfsPath)
                 _state.value = VMState.ERROR
                 _lastError.value = err
@@ -163,11 +198,28 @@ class VMEngine(
         serialConsole = vmInst.consoleBackend
         inputBackend = vmInst.inputBackend
 
-        // 6. Configure & load assembly vectors / guest kernel
-        vmInst.configure()
+        // 6. Configure guest physical RAM, DTB, registers & load kernel
+        _state.value = VMState.BOOTING
+        val configured = vmInst.configure()
+        if (!configured) {
+            vmInst.destroy()
+            instance = null
+            _state.value = VMState.NOT_VERIFIED
+            val err = VMError.guestBootFailed("Kernel setup could not execute on this host environment.")
+            _lastError.value = err
+            return err
+        }
 
-        // 7. Start real instruction thread
-        vmInst.start()
+        // 7. Start real CPU execution thread
+        val started = vmInst.start()
+        if (!started) {
+            vmInst.destroy()
+            instance = null
+            _state.value = VMState.ERROR
+            val err = VMError.guestBootFailed("Failed to launch VM execution thread.")
+            _lastError.value = err
+            return err
+        }
         _lastError.value = null
 
         startTelemetryMonitor(vmInst)
@@ -183,7 +235,7 @@ class VMEngine(
 
             while (true) {
                 val currentState = vm.state.value
-                if (currentState == VMState.RUNNING) {
+                if (currentState == VMState.RUNNING || currentState == VMState.BOOTING) {
                     val regsMap = mutableMapOf<String, Long>()
                     vm.cpu.registers.forEachIndexed { index, value ->
                         regsMap["X$index"] = value
@@ -192,8 +244,7 @@ class VMEngine(
                     regsMap["SP"] = vm.cpu.sp
                     _cpuRegisters.value = regsMap
 
-                    // Real CPU thread active execution indicator (not random noise)
-                    _cpuUsage.value = if (vm.cpu.isHalted || vm.cpu.isPaused) 0f else 0.25f
+                    _cpuUsage.value = if (vm.cpu.isHalted || vm.cpu.isPaused) 0f else 0f
                     _ramUsage.value = realRamFraction
                 } else if (currentState == VMState.PAUSED) {
                     _cpuUsage.value = 0f
@@ -209,31 +260,47 @@ class VMEngine(
     }
 
     fun stop(): String? {
-        val vm = instance ?: return "VM Instance is not active."
-        vm.stop()
+        monitorJob?.cancel()
+        val vm = instance
+        if (vm != null) {
+            vm.stop()
+        }
         _state.value = VMState.STOPPED
+        _cpuUsage.value = 0f
+        _ramUsage.value = 0f
+        _cpuRegisters.value = emptyMap()
         return null
     }
 
     fun pause(): String? {
         val vm = instance ?: return "VM Instance is not active."
-        vm.pause()
-        _state.value = VMState.PAUSED
-        return null
+        val ok = vm.pause()
+        if (ok) {
+            _state.value = VMState.PAUSED
+            _cpuUsage.value = 0f
+            return null
+        }
+        return "Cannot pause VM in state ${_state.value}."
     }
 
     fun resume(): String? {
         val vm = instance ?: return "VM Instance is not active."
-        vm.resume()
-        _state.value = VMState.RUNNING
-        return null
+        val ok = vm.resume()
+        if (ok) {
+            _state.value = vm.state.value
+            return null
+        }
+        return "Cannot resume VM in state ${_state.value}."
     }
 
     fun reset(): String? {
         val vm = instance ?: return "VM Instance is not active."
-        vm.reset()
-        _state.value = VMState.RUNNING
-        return null
+        val ok = vm.reset()
+        if (ok) {
+            _state.value = vm.state.value
+            return null
+        }
+        return "Failed to reset VM instance."
     }
 
     fun clearError() {
@@ -244,5 +311,9 @@ class VMEngine(
         monitorJob?.cancel()
         instance?.destroy()
         instance = null
+        _state.value = VMState.STOPPED
+        _cpuUsage.value = 0f
+        _ramUsage.value = 0f
+        _cpuRegisters.value = emptyMap()
     }
 }

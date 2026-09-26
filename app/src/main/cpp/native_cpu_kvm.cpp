@@ -15,6 +15,10 @@
 #define KVM_CREATE_VM _IO(0xAE, 0x01)
 #endif
 
+#ifndef KVM_CHECK_EXTENSION
+#define KVM_CHECK_EXTENSION _IO(0xAE, 0x03)
+#endif
+
 #ifndef KVM_GET_VCPU_MMAP_SIZE
 #define KVM_GET_VCPU_MMAP_SIZE _IO(0xAE, 0x04)
 #endif
@@ -31,6 +35,31 @@
 #define KVM_RUN _IO(0xAE, 0x80)
 #endif
 
+#ifndef KVM_ARM_VCPU_INIT
+#define KVM_ARM_VCPU_INIT _IOW(0xAE, 0x9B, struct kvm_vcpu_init)
+#endif
+
+#ifndef KVM_ARM_PREFERRED_TARGET
+#define KVM_ARM_PREFERRED_TARGET _IOR(0xAE, 0x99, struct kvm_vcpu_init)
+#endif
+
+#ifndef KVM_GET_ONE_REG
+#define KVM_GET_ONE_REG _IOW(0xAE, 0xAB, struct kvm_one_reg)
+#endif
+
+#ifndef KVM_SET_ONE_REG
+#define KVM_SET_ONE_REG _IOW(0xAE, 0xAC, struct kvm_one_reg)
+#endif
+
+// Capabilities
+#ifndef KVM_CAP_USER_MEMORY
+#define KVM_CAP_USER_MEMORY 3
+#endif
+
+#ifndef KVM_CAP_ARM_VM_IPA_SIZE
+#define KVM_CAP_ARM_VM_IPA_SIZE 165
+#endif
+
 // KVM Exit Reasons
 #define KVM_EXIT_UNKNOWN          0
 #define KVM_EXIT_EXCEPTION        1
@@ -45,12 +74,32 @@
 #define KVM_EXIT_INTR             10
 #define KVM_EXIT_SYSTEM_EVENT     24
 
+// ARM64 KVM Register IDs
+#define KVM_REG_ARM64             0x6000000000000000ULL
+#define KVM_REG_SIZE_U64          0x0030000000000000ULL
+#define KVM_REG_ARM_CORE          0x0010000000000000ULL
+
+#define ARM64_CORE_REG(name)      (KVM_REG_ARM64 | KVM_REG_SIZE_U64 | KVM_REG_ARM_CORE | (name))
+#define KVM_REG_ARM_X0            ARM64_CORE_REG(0)
+#define KVM_REG_ARM_SP            ARM64_CORE_REG(31)
+#define KVM_REG_ARM_PC            ARM64_CORE_REG(32)
+
 struct kvm_userspace_memory_region {
     uint32_t slot;
     uint32_t flags;
     uint64_t guest_phys_addr;
     uint64_t memory_size;
     uint64_t userspace_addr;
+};
+
+struct kvm_vcpu_init {
+    uint32_t target;
+    uint32_t features[7];
+};
+
+struct kvm_one_reg {
+    uint64_t id;
+    uint64_t addr;
 };
 
 struct kvm_run {
@@ -159,6 +208,7 @@ void NativeCPUKVM::reset() {
     pc = 0;
     sp = 0x000FFFF0ULL;
     state = NativeCPUState::READY;
+    syncRegistersToKvm();
 }
 
 uint64_t NativeCPUKVM::getRegister(uint32_t index) const {
@@ -169,13 +219,87 @@ uint64_t NativeCPUKVM::getRegister(uint32_t index) const {
 void NativeCPUKVM::setRegister(uint32_t index, uint64_t value) {
     if (index < 31) {
         registers[index] = value;
+        if (vcpuFd >= 0) {
+            struct kvm_one_reg reg;
+            reg.id = ARM64_CORE_REG(index);
+            reg.addr = reinterpret_cast<uint64_t>(&registers[index]);
+            ioctl(vcpuFd, KVM_SET_ONE_REG, &reg);
+        }
     }
+}
+
+void NativeCPUKVM::setPC(uint64_t val) {
+    pc = val;
+    if (vcpuFd >= 0) {
+        struct kvm_one_reg reg;
+        reg.id = KVM_REG_ARM_PC;
+        reg.addr = reinterpret_cast<uint64_t>(&pc);
+        ioctl(vcpuFd, KVM_SET_ONE_REG, &reg);
+    }
+}
+
+void NativeCPUKVM::setSP(uint64_t val) {
+    sp = val;
+    if (vcpuFd >= 0) {
+        struct kvm_one_reg reg;
+        reg.id = KVM_REG_ARM_SP;
+        reg.addr = reinterpret_cast<uint64_t>(&sp);
+        ioctl(vcpuFd, KVM_SET_ONE_REG, &reg);
+    }
+}
+
+bool NativeCPUKVM::syncRegistersToKvm() {
+    if (vcpuFd < 0) return false;
+
+    struct kvm_one_reg reg;
+    for (uint32_t i = 0; i < 31; i++) {
+        reg.id = ARM64_CORE_REG(i);
+        reg.addr = reinterpret_cast<uint64_t>(&registers[i]);
+        ioctl(vcpuFd, KVM_SET_ONE_REG, &reg);
+    }
+
+    reg.id = KVM_REG_ARM_SP;
+    reg.addr = reinterpret_cast<uint64_t>(&sp);
+    ioctl(vcpuFd, KVM_SET_ONE_REG, &reg);
+
+    reg.id = KVM_REG_ARM_PC;
+    reg.addr = reinterpret_cast<uint64_t>(&pc);
+    ioctl(vcpuFd, KVM_SET_ONE_REG, &reg);
+
+    return true;
+}
+
+bool NativeCPUKVM::syncRegistersFromKvm() {
+    if (vcpuFd < 0) return false;
+
+    struct kvm_one_reg reg;
+    for (uint32_t i = 0; i < 31; i++) {
+        reg.id = ARM64_CORE_REG(i);
+        reg.addr = reinterpret_cast<uint64_t>(&registers[i]);
+        ioctl(vcpuFd, KVM_GET_ONE_REG, &reg);
+    }
+
+    reg.id = KVM_REG_ARM_SP;
+    reg.addr = reinterpret_cast<uint64_t>(&sp);
+    ioctl(vcpuFd, KVM_GET_ONE_REG, &reg);
+
+    reg.id = KVM_REG_ARM_PC;
+    reg.addr = reinterpret_cast<uint64_t>(&pc);
+    ioctl(vcpuFd, KVM_GET_ONE_REG, &reg);
+
+    return true;
 }
 
 bool NativeCPUKVM::initKvmVcpu(NativeMemory& memory) {
     if (kvmFd < 0) {
         kvmFd = open("/dev/kvm", O_RDWR | O_CLOEXEC);
         if (kvmFd < 0) return false;
+    }
+
+    // Check user memory capability
+    int capUserMem = ioctl(kvmFd, KVM_CHECK_EXTENSION, KVM_CAP_USER_MEMORY);
+    if (capUserMem <= 0) {
+        return false;
     }
 
     int mmapSize = ioctl(kvmFd, KVM_GET_VCPU_MMAP_SIZE, 0);
@@ -206,12 +330,21 @@ bool NativeCPUKVM::initKvmVcpu(NativeMemory& memory) {
         vcpuFd = ioctl(vmFd, KVM_CREATE_VCPU, 0);
         if (vcpuFd < 0) return false;
 
+        // Initialize ARM64 vCPU preferred target
+        struct kvm_vcpu_init init;
+        std::memset(&init, 0, sizeof(init));
+        if (ioctl(vmFd, KVM_ARM_PREFERRED_TARGET, &init) >= 0) {
+            ioctl(vcpuFd, KVM_ARM_VCPU_INIT, &init);
+        }
+
         void* runPtr = mmap(nullptr, vcpuMmapSize, PROT_READ | PROT_WRITE, MAP_SHARED, vcpuFd, 0);
         if (runPtr == MAP_FAILED) {
             runStruct = nullptr;
         } else {
             runStruct = static_cast<struct kvm_run*>(runPtr);
         }
+
+        syncRegistersToKvm();
     }
 
     return true;
@@ -289,6 +422,7 @@ NativeCPUState NativeCPUKVM::step(NativeMemory& memory, NativeDeviceManager& dev
         }
     }
 
+    syncRegistersFromKvm();
     return state;
 }
 

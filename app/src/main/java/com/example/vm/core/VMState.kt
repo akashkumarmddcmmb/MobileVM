@@ -1,19 +1,19 @@
 package com.example.vm.core
 
 enum class VMState {
-    CREATED,
-    STARTING,
+    READY,
+    BOOTING,
     RUNNING,
     PAUSED,
-    STOPPING,
     STOPPED,
-    ERROR;
+    ERROR,
+    NOT_VERIFIED;
 
-    fun isTerminal(): Boolean = this == STOPPED || this == ERROR
+    fun isTerminal(): Boolean = this == STOPPED || this == ERROR || this == NOT_VERIFIED
 
-    fun canStart(): Boolean = this == CREATED || this == STOPPED || this == ERROR
-    fun canStop(): Boolean = this == RUNNING || this == PAUSED
+    fun canStart(): Boolean = this == READY || this == STOPPED || this == ERROR || this == NOT_VERIFIED
+    fun canStop(): Boolean = this == RUNNING || this == PAUSED || this == BOOTING
     fun canPause(): Boolean = this == RUNNING
     fun canResume(): Boolean = this == PAUSED
-    fun canReset(): Boolean = this == RUNNING || this == PAUSED
+    fun canReset(): Boolean = this == RUNNING || this == PAUSED || this == BOOTING
 }

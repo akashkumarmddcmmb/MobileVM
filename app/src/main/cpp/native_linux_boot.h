@@ -46,7 +46,6 @@ public:
 
 private:
     static bool loadCustomKernel(const LinuxBootConfig& config, NativeMemory& memory, NativeCPUBackend& cpu, std::string& outLog);
-    static void generateBuiltinLinuxGuest(const LinuxBootConfig& config, NativeMemory& memory, NativeCPUBackend& cpu, NativeDeviceManager& devices);
     static uint64_t generateDeviceTreeBlob(const LinuxBootConfig& config, NativeMemory& memory, uint64_t dtbOffset);
 };
 

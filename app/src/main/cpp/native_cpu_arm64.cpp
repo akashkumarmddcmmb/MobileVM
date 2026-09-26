@@ -12,6 +12,7 @@ void NativeCPUARM64::reset() {
     pc = 0x00000000ULL;
     sp = 0x000FFFF0ULL;
     pstate = 0;
+    tpidr_el0 = 0;
     state = NativeCPUState::READY;
 }
 
@@ -93,6 +94,38 @@ NativeCPUState NativeCPUARM64::step(NativeMemory& memory, NativeDeviceManager& d
 
     // NOP (0xD503201F)
     if (inst == 0xD503201F) {
+        pc += 4;
+        return state;
+    }
+
+    // MRS Xd, NZCV (0xD53B4200)
+    if ((inst & 0xFFFFFE00) == 0xD53B4200) {
+        uint32_t rd = inst & 0x1F;
+        setRegister(rd, static_cast<uint64_t>(pstate));
+        pc += 4;
+        return state;
+    }
+
+    // MSR NZCV, Xn (0xD51B4200)
+    if ((inst & 0xFFFFFE00) == 0xD51B4200) {
+        uint32_t rn = (inst >> 5) & 0x1F;
+        pstate = static_cast<uint32_t>(getRegister(rn) & 0xF0000000ULL);
+        pc += 4;
+        return state;
+    }
+
+    // MRS Xd, TPIDR_EL0 (0xD53BD040)
+    if ((inst & 0xFFFFFE00) == 0xD53BD040) {
+        uint32_t rd = inst & 0x1F;
+        setRegister(rd, tpidr_el0);
+        pc += 4;
+        return state;
+    }
+
+    // MSR TPIDR_EL0, Xn (0xD51BD040)
+    if ((inst & 0xFFFFFE00) == 0xD51BD040) {
+        uint32_t rn = (inst >> 5) & 0x1F;
+        tpidr_el0 = getRegister(rn);
         pc += 4;
         return state;
     }
@@ -188,66 +221,72 @@ NativeCPUState NativeCPUARM64::step(NativeMemory& memory, NativeDeviceManager& d
         return state;
     }
 
-    // STRB register offset (0x39000000)
+    // STRB unsigned offset (0x39000000)
     if ((inst & 0xFFC00000) == 0x39000000) {
         uint32_t rt = inst & 0x1F;
         uint32_t rn = (inst >> 5) & 0x1F;
-        uint64_t addr = getRegister(rn);
+        uint32_t imm12 = (inst >> 10) & 0xFFF;
+        uint64_t addr = getRegister(rn) + imm12;
         uint8_t val = static_cast<uint8_t>(getRegister(rt) & 0xFF);
         handleStore8(addr, val, memory, devices);
         pc += 4;
         return state;
     }
 
-    // STR 32-bit register (0xB9000000)
+    // STR 32-bit unsigned offset (0xB9000000)
     if ((inst & 0xFFC00000) == 0xB9000000) {
         uint32_t rt = inst & 0x1F;
         uint32_t rn = (inst >> 5) & 0x1F;
-        uint64_t addr = getRegister(rn);
+        uint32_t imm12 = (inst >> 10) & 0xFFF;
+        uint64_t addr = getRegister(rn) + (imm12 << 2);
         uint32_t val = static_cast<uint32_t>(getRegister(rt) & 0xFFFFFFFF);
         handleStore32(addr, val, memory, devices);
         pc += 4;
         return state;
     }
 
-    // STR 64-bit register (0xF9000000)
+    // STR 64-bit unsigned offset (0xF9000000)
     if ((inst & 0xFFC00000) == 0xF9000000) {
         uint32_t rt = inst & 0x1F;
         uint32_t rn = (inst >> 5) & 0x1F;
-        uint64_t addr = getRegister(rn);
+        uint32_t imm12 = (inst >> 10) & 0xFFF;
+        uint64_t addr = getRegister(rn) + (imm12 << 3);
         uint64_t val = getRegister(rt);
         handleStore64(addr, val, memory, devices);
         pc += 4;
         return state;
     }
 
-    // LDRB register (0x39400000)
+    // LDRB unsigned offset (0x39400000)
     if ((inst & 0xFFC00000) == 0x39400000) {
         uint32_t rt = inst & 0x1F;
         uint32_t rn = (inst >> 5) & 0x1F;
-        uint64_t addr = getRegister(rn);
+        uint32_t imm12 = (inst >> 10) & 0xFFF;
+        uint64_t addr = getRegister(rn) + imm12;
         uint8_t val = handleLoad8(addr, memory, devices);
         setRegister(rt, val);
         pc += 4;
         return state;
     }
 
-    // LDR 32-bit register (0xB9400000)
+    // LDR 32-bit unsigned offset (0xB9400000)
     if ((inst & 0xFFC00000) == 0xB9400000) {
         uint32_t rt = inst & 0x1F;
         uint32_t rn = (inst >> 5) & 0x1F;
-        uint64_t addr = getRegister(rn);
+        uint32_t imm12 = (inst >> 10) & 0xFFF;
+        uint64_t addr = getRegister(rn) + (imm12 << 2);
         uint32_t val = handleLoad32(addr, memory, devices);
         setRegister(rt, val);
         pc += 4;
         return state;
     }
 
-    // LDR 64-bit register (0xF9400000)
+    // LDR 64-bit unsigned offset (0xF9400000)
     if ((inst & 0xFFC00000) == 0xF9400000) {
         uint32_t rt = inst & 0x1F;
         uint32_t rn = (inst >> 5) & 0x1F;
-        uint64_t addr = getRegister(rn);
+        uint32_t imm12 = (inst >> 10) & 0xFFF;
+        uint64_t addr = getRegister(rn) + (imm12 << 3);
         uint64_t val = handleLoad64(addr, memory, devices);
         setRegister(rt, val);
         pc += 4;
@@ -310,7 +349,7 @@ NativeCPUState NativeCPUARM64::step(NativeMemory& memory, NativeDeviceManager& d
         return state;
     }
 
-    // Undefined Instruction Trap
+    // Undefined Instruction Trap: write to power/control trap port and halt
     state = NativeCPUState::TRAP_FAULT;
     devices.handleMMIOWrite8(0x08000000ULL, 0x03);
     return state;

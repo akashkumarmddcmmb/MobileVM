@@ -61,9 +61,9 @@ data class VMError(
 
         fun kernelMissing(path: String, details: String = ""): VMError = VMError(
             category = VMErrorCategory.KERNEL_MISSING,
-            summary = "Configured Linux kernel image was not found at specified path.",
+            summary = "ARM64 Linux kernel image is missing or invalid.",
             technicalDetails = "Target path: '$path'. $details",
-            suggestedRemedy = "Provide a valid ARM64 uncompressed Image or vmlinux file, or leave blank to use built-in microkernel."
+            suggestedRemedy = "Import or download a valid ARM64 uncompressed Image or vmlinux file in VM Settings."
         )
 
         fun initramfsMissing(path: String): VMError = VMError(

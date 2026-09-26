@@ -622,10 +622,11 @@ fun VMCard(
         targetValue = when (state) {
             VMState.RUNNING -> Color(0xFF00E676)
             VMState.PAUSED -> Color(0xFFFFB300)
-            VMState.STARTING -> Color(0xFF00E5FF)
-            VMState.STOPPING -> Color(0xFFE53935)
+            VMState.BOOTING -> Color(0xFF00E5FF)
+            VMState.READY -> Color(0xFF81D4FA)
+            VMState.NOT_VERIFIED -> Color(0xFFFF9100)
+            VMState.STOPPED -> Color.Gray
             VMState.ERROR -> Color(0xFFFF5252)
-            else -> Color.Gray
         },
         label = "stateColor"
     )
@@ -899,7 +900,7 @@ fun VMCard(
                         }
                     } else {
                         when (state) {
-                            VMState.STARTING -> {
+                            VMState.BOOTING -> {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(24.dp),
                                     strokeWidth = 2.dp,
@@ -937,7 +938,7 @@ fun VMCard(
                             }
                             else -> {
                                 Button(onClick = onStart) {
-                                    Text("Reboot")
+                                    Text(if (state == VMState.READY) "Boot" else "Reboot")
                                 }
                             }
                         }
@@ -1110,7 +1111,7 @@ fun ConsoleTab(viewModel: VMViewModel, engine: VMEngine) {
         val inputEventsCount by engine.inputBackend.virtualInputDevice.eventsDispatched.collectAsStateWithLifecycle()
         val displayStatus by engine.displayDevice.renderStatus.collectAsStateWithLifecycle()
 
-        if (state == VMState.RUNNING || state == VMState.STARTING || state == VMState.PAUSED) {
+        if (state == VMState.RUNNING || state == VMState.BOOTING || state == VMState.PAUSED) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2734,11 +2735,11 @@ fun VMConfigDialog(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("ARM64 Linux Kernel Image (Image / vmlinux)", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                                Text("ARM64 Linux Kernel Image (Image / vmlinuz)", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
                                 OutlinedTextField(
                                     value = kernelImagePath,
                                     onValueChange = { kernelImagePath = it },
-                                    placeholder = { Text("Leave blank for built-in Linux 6.6.0", fontSize = 10.sp) },
+                                    placeholder = { Text("Path to verified ARM64 Image / vmlinux", fontSize = 10.sp) },
                                     modifier = Modifier.fillMaxWidth().testTag("input_kernel_path"),
                                     singleLine = true
                                 )

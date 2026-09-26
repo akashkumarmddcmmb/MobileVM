@@ -12,7 +12,6 @@
 #include "native_devices.h"
 #include "native_arch.h"
 #include "native_linux_boot.h"
-#include "guest_linux_shell.h"
 
 enum class VMNativeState {
     CREATED = 0,
@@ -80,11 +79,10 @@ private:
     NativeMemory memory;
     std::unique_ptr<NativeCPUBackend> cpu;
     NativeDeviceManager devices;
-    std::unique_ptr<GuestLinuxShell> guestShell;
 
     std::atomic<VMNativeState> state;
 
-    void loadBootPayload();
+    bool loadBootPayload();
 };
 
 #endif // NATIVE_VM_ENGINE_H
