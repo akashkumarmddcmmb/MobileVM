@@ -41,8 +41,10 @@ private:
 
     void handleStore8(uint64_t address, uint8_t value, NativeMemory& memory, NativeDeviceManager& devices);
     void handleStore32(uint64_t address, uint32_t value, NativeMemory& memory, NativeDeviceManager& devices);
+    void handleStore64(uint64_t address, uint64_t value, NativeMemory& memory, NativeDeviceManager& devices);
     uint8_t handleLoad8(uint64_t address, NativeMemory& memory, NativeDeviceManager& devices);
     uint32_t handleLoad32(uint64_t address, NativeMemory& memory, NativeDeviceManager& devices);
+    uint64_t handleLoad64(uint64_t address, NativeMemory& memory, NativeDeviceManager& devices);
 };
 
 #endif // NATIVE_CPU_ARM64_H

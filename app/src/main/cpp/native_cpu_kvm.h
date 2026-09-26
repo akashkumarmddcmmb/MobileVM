@@ -4,6 +4,9 @@
 #include "native_cpu_backend.h"
 #include <string>
 
+// Forward declaration of kvm_run struct
+struct kvm_run;
+
 class NativeCPUKVM : public NativeCPUBackend {
 public:
     NativeCPUKVM();
@@ -40,12 +43,15 @@ private:
     int kvmFd;
     int vmFd;
     int vcpuFd;
+    size_t vcpuMmapSize;
+    struct kvm_run* runStruct;
     std::array<uint64_t, 32> registers;
     uint64_t pc;
     uint64_t sp;
     NativeCPUState state;
 
     bool initKvmVcpu(NativeMemory& memory);
+    void handleMmioExit(NativeMemory& memory, NativeDeviceManager& devices);
 };
 
 #endif // NATIVE_CPU_KVM_H
