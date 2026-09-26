@@ -5,12 +5,10 @@ on:
     branches:
       - main
       - master
-
   pull_request:
     branches:
       - main
       - master
-
   workflow_dispatch:
 
 permissions:
@@ -22,10 +20,10 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout source code
+      - name: Checkout project
         uses: actions/checkout@v4
 
-      - name: Setup JDK 17
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -33,33 +31,26 @@ jobs:
           cache: gradle
 
       - name: Setup Android SDK
-      - run: |
+        run: |
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          echo "Android SDK configured successfully"
+          echo "Android SDK configured"
           sdkmanager --version
+
       - name: Install Android SDK components
         run: |
           yes | sdkmanager --licenses || true
-
-          sdkmanager --install \
+          sdkmanager \
             "platform-tools" \
             "platforms;android-36" \
             "build-tools;36.0.0" \
-            "cmake;3.22.1"
+            "cmake;3.22.1" \
+            "ndk;27.2.12479018"
 
-      - name: Configure Android SDK environment
-        run: |
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-
-      - name: Make Gradle wrapper executable
+      - name: Make Gradle executable
         run: chmod +x ./gradlew
 
-      - name: Verify Java
-        run: java -version
-
-      - name: Verify Gradle
+      - name: Check Gradle
         run: ./gradlew --version
 
       - name: Clean project
@@ -70,15 +61,10 @@ jobs:
 
       - name: Verify APK
         run: |
-          echo "Generated APK files:"
           find app/build/outputs/apk -type f -name "*.apk" -print
-
           test -f app/build/outputs/apk/debug/app-debug.apk
 
-          echo "APK successfully generated:"
-          ls -lh app/build/outputs/apk/debug/app-debug.apk
-
-      - name: Upload Debug APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: MobileVM-debug-apk
