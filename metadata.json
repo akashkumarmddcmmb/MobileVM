@@ -1,0 +1,6 @@
+{
+  "name": "MobileVM",
+  "description": "General-purpose Virtual Machine (VM) manager and virtualization sandbox for Android.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
