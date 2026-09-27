@@ -16,6 +16,8 @@ data class InitramfsInfo(
 )
 
 object GuestInitramfsManager {
+    const val MAX_REASONABLE_INITRAMFS_BYTES: Long = 512L * 1024L * 1024L // 512 MB max
+
     fun inspectInitramfs(initramfsPath: String): InitramfsInfo {
         if (initramfsPath.isEmpty()) {
             return InitramfsInfo(
@@ -31,8 +33,28 @@ object GuestInitramfsManager {
         val exists = file.exists()
         val size = if (exists) file.length() else 0L
 
+        if (!exists) {
+            return InitramfsInfo(
+                path = initramfsPath,
+                exists = false,
+                sizeBytes = 0L,
+                isCompressed = false,
+                format = "File Not Found"
+            )
+        }
+
+        if (size > MAX_REASONABLE_INITRAMFS_BYTES) {
+            return InitramfsInfo(
+                path = initramfsPath,
+                exists = true,
+                sizeBytes = size,
+                isCompressed = false,
+                format = "Initramfs exceeds reasonable size limit (> 512 MB): ${size / (1024 * 1024)} MB"
+            )
+        }
+
         var isGzip = false
-        if (exists && size >= 2) {
+        if (size >= 2) {
             try {
                 file.inputStream().use { stream ->
                     val magic = ByteArray(2)
@@ -47,10 +69,10 @@ object GuestInitramfsManager {
 
         return InitramfsInfo(
             path = initramfsPath,
-            exists = exists,
+            exists = true,
             sizeBytes = size,
             isCompressed = isGzip,
-            format = if (isGzip) "CPIO archive (gzip compressed)" else if (exists) "CPIO / Raw Ramfs" else "File Not Found"
+            format = if (isGzip) "CPIO archive (gzip compressed)" else "CPIO / Raw Ramfs"
         )
     }
 }

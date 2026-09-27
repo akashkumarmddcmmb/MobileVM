@@ -59,6 +59,8 @@ public:
     uint8_t handleMMIORead8(uint64_t address);
     uint32_t handleMMIORead32(uint64_t address);
 
+    bool isMMIOAddress(uint64_t address) const;
+
     NativeUART& getUART() { return uart; }
     const NativeUART& getUART() const { return uart; }
     NativeDisplay& getDisplay() { return display; }
@@ -72,6 +74,8 @@ public:
     void resetAll();
 
 private:
+    void processVirtioBlockQueue(NativeMemory* memory);
+
     NativeUART uart;
     NativeDisplay display;
     NativeDisk disk;
@@ -79,11 +83,24 @@ private:
     NativePowerEvent powerEvent;
     std::mutex deviceMutex;
 
-    // VirtIO-Block MMIO Registers (0x0A000000 - 0x0A000030)
+    // VirtIO-Block MMIO Modern Registers & Split-Virtqueue state
+    uint32_t blkDeviceFeaturesSel;
+    uint32_t blkDriverFeatures;
+    uint32_t blkDriverFeaturesSel;
+    uint32_t blkQueueSel;
+    uint32_t blkQueueNum;
+    uint32_t blkQueueReady;
+    uint64_t blkQueueDescAddr;
+    uint64_t blkQueueDriverAddr;
+    uint64_t blkQueueDeviceAddr;
+    uint16_t blkLastAvailIdx;
+    uint32_t blkInterruptStatus;
+    uint32_t blkStatus;
+
+    // Direct DMA MMIO Registers for test compatibility
     uint64_t blkLba;
     uint32_t blkSectorCount;
     uint64_t blkDmaAddr;
-    uint32_t blkStatus;
 };
 
 #endif // NATIVE_DEVICES_H

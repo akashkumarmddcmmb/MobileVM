@@ -214,8 +214,13 @@ class AndroidStorageDiskBackend(private val context: Context) : DiskBackend {
             val file = File(diskPath)
             if (!file.exists()) return false
 
+            val offset = lba * SECTOR_SIZE
+            if (offset + data.size > file.length()) {
+                Log.e(TAG, "Bounds check failed: Refusing out-of-bounds write to $diskPath at LBA $lba")
+                return false
+            }
+
             RandomAccessFile(file, "rw").use { raf ->
-                val offset = lba * SECTOR_SIZE
                 raf.seek(offset)
                 raf.write(data)
                 true
@@ -240,6 +245,30 @@ class AndroidStorageDiskBackend(private val context: Context) : DiskBackend {
             file.delete()
         } else {
             true
+        }
+    }
+
+    /**
+     * Imports a user-selected guest disk image (.img / raw rootfs) into the authorized disks directory.
+     */
+    fun importDiskImage(sourceStream: java.io.InputStream, destinationFileName: String): File? {
+        val safeName = destinationFileName.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
+        val targetFile = File(getAuthorizedDisksDirectory(), safeName)
+        return try {
+            targetFile.parentFile?.mkdirs()
+            java.io.FileOutputStream(targetFile).use { output ->
+                sourceStream.copyTo(output)
+            }
+            if (targetFile.exists() && targetFile.length() >= 512) {
+                targetFile
+            } else {
+                targetFile.delete()
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to import disk image: ${e.message}", e)
+            targetFile.delete()
+            null
         }
     }
 

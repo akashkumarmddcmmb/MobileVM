@@ -2,6 +2,9 @@ package com.example.vm.ui
 
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
@@ -57,6 +60,11 @@ import com.example.vm.cpu.GuestArchitecture
 import com.example.vm.cpu.HostArchitecture
 import com.example.vm.memory.MemoryManager
 import com.example.vm.storage.AndroidStorageDiskBackend
+import com.example.vm.guest.kernel.GuestKernelDownloader
+import com.example.vm.guest.kernel.GuestKernelManager
+import com.example.vm.guest.initramfs.GuestInitramfsDownloader
+import com.example.vm.guest.initramfs.GuestInitramfsManager
+import com.example.vm.guest.ubuntu.UbuntuGuestManager
 import com.example.vm.input.TouchAction
 import com.example.vm.input.InputBackend
 import com.example.vm.input.VirtualInputDevice
@@ -269,7 +277,7 @@ fun VMHomeView(
                     config = editingConfig,
                     viewModel = viewModel,
                     onDismiss = { showCreateDialog = false },
-                    onSave = { name, os, gArch, cores, ram, disk, virt, net, serial, kernel, initrd, cmdline, console ->
+                    onSave = { name, os, gArch, cores, ram, disk, virt, net, serial, kernel, initrd, cmdline, console, diskImage ->
                         viewModel.saveConfiguration(
                             id = editingConfig?.id ?: 0,
                             name = name,
@@ -284,7 +292,8 @@ fun VMHomeView(
                             kernelImagePath = kernel,
                             initramfsPath = initrd,
                             kernelCmdline = cmdline,
-                            consoleDevice = console
+                            consoleDevice = console,
+                            diskImagePath = diskImage
                         )
                         showCreateDialog = false
                     }
@@ -2476,7 +2485,8 @@ fun VMConfigDialog(
         kernel: String,
         initrd: String,
         cmdline: String,
-        console: String
+        console: String,
+        diskImage: String
     ) -> Unit
 ) {
     var name by remember { mutableStateOf(config?.name ?: "Ubuntu_ARM64") }
@@ -2493,11 +2503,101 @@ fun VMConfigDialog(
     // Advanced Linux Guest Boot options
     var kernelImagePath by remember { mutableStateOf(config?.kernelImagePath ?: "") }
     var initramfsPath by remember { mutableStateOf(config?.initramfsPath ?: "") }
+    var diskImagePath by remember { mutableStateOf(config?.diskImagePath ?: "") }
     var kernelCmdline by remember { mutableStateOf(config?.kernelCmdline ?: "console=ttyAMA0,115200 root=/dev/vda1 rw init=/init earlycon=pl011,0x09000000") }
     var consoleDevice by remember { mutableStateOf(config?.consoleDevice ?: "ttyAMA0 (PL011 UART)") }
     var showAdvancedBoot by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var importStatusMessage by remember { mutableStateOf<String?>(null) }
+
+    val kernelPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            coroutineScope.launch {
+                try {
+                    val stream = context.contentResolver.openInputStream(uri)
+                    if (stream != null) {
+                        val fileName = uri.lastPathSegment?.substringAfterLast('/') ?: "vmlinuz-generic"
+                        val result = GuestKernelDownloader.importKernel(context, stream, fileName)
+                        when (result) {
+                            is GuestKernelDownloader.DownloadResult.Success -> {
+                                kernelImagePath = result.kernelFile.absolutePath
+                                importStatusMessage = "Kernel imported successfully: ${result.kernelFile.name} (${result.sizeBytes / 1024} KB)"
+                            }
+                            is GuestKernelDownloader.DownloadResult.Failure -> {
+                                importStatusMessage = "Kernel import rejected: ${result.reason}"
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    importStatusMessage = "Import error: ${e.message}"
+                }
+            }
+        }
+    }
+
+    val initrdPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            coroutineScope.launch {
+                try {
+                    val stream = context.contentResolver.openInputStream(uri)
+                    if (stream != null) {
+                        val fileName = uri.lastPathSegment?.substringAfterLast('/') ?: "initrd-generic.cpio.gz"
+                        val result = GuestInitramfsDownloader.importInitramfs(context, stream, fileName)
+                        when (result) {
+                            is GuestInitramfsDownloader.InitramfsResult.Success -> {
+                                initramfsPath = result.initramfsFile.absolutePath
+                                importStatusMessage = "Initramfs imported successfully: ${result.initramfsFile.name}"
+                            }
+                            is GuestInitramfsDownloader.InitramfsResult.Failure -> {
+                                importStatusMessage = "Initramfs import rejected: ${result.reason}"
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    importStatusMessage = "Import error: ${e.message}"
+                }
+            }
+        }
+    }
+
+    val diskPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            coroutineScope.launch {
+                try {
+                    val stream = context.contentResolver.openInputStream(uri)
+                    if (stream != null) {
+                        val fileName = uri.lastPathSegment?.substringAfterLast('/') ?: "ubuntu-guest-disk.img"
+                        val importedFile = viewModel.diskBackend.importDiskImage(stream, fileName)
+                        if (importedFile != null) {
+                            val info = viewModel.diskBackend.inspectMBR(importedFile.absolutePath)
+                            if (info != null && info.isValidSignature) {
+                                diskImagePath = importedFile.absolutePath
+                                val fileLengthGb = (importedFile.length() / (1024L * 1024L * 1024L)).toInt().coerceIn(5, 120)
+                                diskSizeGb = if (fileLengthGb > 5) fileLengthGb else 10
+                                importStatusMessage = "Guest disk imported successfully: ${importedFile.name} (${importedFile.length() / (1024 * 1024)} MB)"
+                            } else {
+                                importedFile.delete()
+                                importStatusMessage = "Disk import rejected: No valid MBR partition table (0xAA55 signature missing)."
+                            }
+                        } else {
+                            importStatusMessage = "Disk import failed: Could not copy file to private sandbox."
+                        }
+                    }
+                } catch (e: Exception) {
+                    importStatusMessage = "Disk import error: ${e.message}"
+                }
+            }
+        }
+    }
+
     val memoryManager = remember { MemoryManager(context) }
     val safetyResult = memoryManager.getMemorySafetyRecommendation(ramSizeMb)
 
@@ -2735,15 +2835,73 @@ fun VMConfigDialog(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("ARM64 Linux Kernel, Initramfs & Guest Disk Importer", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                Text("Import authentic ARM64 vmlinuz-generic, initrd-generic, or raw guest disk image (.img) directly into private app storage:", fontSize = 10.sp, color = Color.Gray)
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = { kernelPickerLauncher.launch(arrayOf("*/*")) },
+                                        modifier = Modifier.weight(1f).testTag("btn_import_kernel")
+                                    ) {
+                                        Icon(Icons.Default.UploadFile, contentDescription = "Import Kernel", modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Pick Kernel", fontSize = 11.sp)
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = { initrdPickerLauncher.launch(arrayOf("*/*")) },
+                                        modifier = Modifier.weight(1f).testTag("btn_import_initrd")
+                                    ) {
+                                        Icon(Icons.Default.Archive, contentDescription = "Import Initrd", modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Pick Initrd", fontSize = 11.sp)
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    OutlinedButton(
+                                        onClick = { diskPickerLauncher.launch(arrayOf("*/*")) },
+                                        modifier = Modifier.fillMaxWidth().testTag("btn_import_disk")
+                                    ) {
+                                        Icon(Icons.Default.Storage, contentDescription = "Import Disk Image", modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Import Custom MBR Guest Disk (.img)", fontSize = 11.sp)
+                                    }
+                                }
+
+                                importStatusMessage?.let { msg ->
+                                    Text(
+                                        text = msg,
+                                        fontSize = 10.sp,
+                                        color = if (msg.contains("rejected", ignoreCase = true) || msg.contains("error", ignoreCase = true) || msg.contains("failed", ignoreCase = true)) Color(0xFFFF5252) else Color(0xFF00E676),
+                                        fontFamily = FontFamily.Monospace,
+                                        lineHeight = 13.sp
+                                    )
+                                }
+
+                                HorizontalDivider(color = Color(0xFF1E2833))
+
                                 Text("ARM64 Linux Kernel Image (Image / vmlinuz)", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
                                 OutlinedTextField(
                                     value = kernelImagePath,
                                     onValueChange = { kernelImagePath = it },
-                                    placeholder = { Text("Path to verified ARM64 Image / vmlinux", fontSize = 10.sp) },
+                                    placeholder = { Text("Path to verified ARM64 Image / vmlinuz", fontSize = 10.sp) },
                                     modifier = Modifier.fillMaxWidth().testTag("input_kernel_path"),
                                     singleLine = true
                                 )
-                                if (kernelImagePath.isNotBlank() && !viewModel.diskBackend.isGuestImagePathAuthorized(kernelImagePath)) {
+                                if (kernelImagePath.endsWith(".iso", ignoreCase = true) || kernelImagePath.contains(".iso", ignoreCase = true)) {
+                                    Text(
+                                        text = "❌ ISO image detected: " + UbuntuGuestManager.explainIsoRestriction(),
+                                        fontSize = 10.sp,
+                                        color = Color(0xFFFF5252),
+                                        lineHeight = 13.sp
+                                    )
+                                } else if (kernelImagePath.isNotBlank() && !viewModel.diskBackend.isGuestImagePathAuthorized(kernelImagePath)) {
                                     Text(
                                         text = "⚠️ Security Warning: Path is outside app sandbox. To protect host files, only app-scoped storage is permitted.",
                                         fontSize = 10.sp,
@@ -2761,6 +2919,23 @@ fun VMConfigDialog(
                                     singleLine = true
                                 )
                                 if (initramfsPath.isNotBlank() && !viewModel.diskBackend.isGuestImagePathAuthorized(initramfsPath)) {
+                                    Text(
+                                        text = "⚠️ Security Warning: Path is outside app sandbox. To protect host files, only app-scoped storage is permitted.",
+                                        fontSize = 10.sp,
+                                        color = Color(0xFFFF5252),
+                                        lineHeight = 13.sp
+                                    )
+                                }
+
+                                Text("Custom MBR Guest Disk (.img) Path (Optional)", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                                OutlinedTextField(
+                                    value = diskImagePath,
+                                    onValueChange = { diskImagePath = it },
+                                    placeholder = { Text("Path to imported custom MBR guest disk", fontSize = 10.sp) },
+                                    modifier = Modifier.fillMaxWidth().testTag("input_disk_image_path"),
+                                    singleLine = true
+                                )
+                                if (diskImagePath.isNotBlank() && !viewModel.diskBackend.isPathAuthorized(diskImagePath) && !viewModel.diskBackend.isGuestImagePathAuthorized(diskImagePath)) {
                                     Text(
                                         text = "⚠️ Security Warning: Path is outside app sandbox. To protect host files, only app-scoped storage is permitted.",
                                         fontSize = 10.sp,
@@ -2861,7 +3036,8 @@ fun VMConfigDialog(
             val isMemSafe = safetyResult !is MemoryManager.SafetyResult.Danger
             val isKernelAuthorized = kernelImagePath.isBlank() || viewModel.diskBackend.isGuestImagePathAuthorized(kernelImagePath)
             val isInitrdAuthorized = initramfsPath.isBlank() || viewModel.diskBackend.isGuestImagePathAuthorized(initramfsPath)
-            val arePathsAuthorized = isKernelAuthorized && isInitrdAuthorized
+            val isDiskAuthorized = diskImagePath.isBlank() || viewModel.diskBackend.isPathAuthorized(diskImagePath) || viewModel.diskBackend.isGuestImagePathAuthorized(diskImagePath)
+            val arePathsAuthorized = isKernelAuthorized && isInitrdAuthorized && isDiskAuthorized
             val canSave = isMemSafe && arePathsAuthorized && name.isNotBlank()
 
             Button(
@@ -2879,7 +3055,8 @@ fun VMConfigDialog(
                         kernelImagePath,
                         initramfsPath,
                         kernelCmdline,
-                        consoleDevice
+                        consoleDevice,
+                        diskImagePath
                     )
                 },
                 enabled = canSave,

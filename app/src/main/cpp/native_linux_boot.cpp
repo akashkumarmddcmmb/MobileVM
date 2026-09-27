@@ -105,7 +105,7 @@ bool NativeLinuxBootLoader::loadCustomKernel(
     }
 
     // Generate Device Tree Blob (DTB) at 0x00040000 (standard ARM64 boot convention)
-    uint64_t dtbAddress = generateDeviceTreeBlob(config, memory, 0x00040000ULL);
+    uint64_t dtbAddress = generateDeviceTreeBlob(config, memory, 0x00040000ULL, initrdStart, initrdSize);
 
     // Set CPU registers per ARM64 Linux Boot Protocol (arch/arm64/booting.rst):
     // X0 = Physical address of Device Tree (DTB) blob
@@ -128,9 +128,11 @@ bool NativeLinuxBootLoader::loadCustomKernel(
 uint64_t NativeLinuxBootLoader::generateDeviceTreeBlob(
     const LinuxBootConfig& config,
     NativeMemory& memory,
-    uint64_t dtbOffset
+    uint64_t dtbOffset,
+    uint64_t initrdStart,
+    uint64_t initrdSize
 ) {
-    // Construct real Flattened Device Tree (FDT) header (Header magic 0xd00dfeed)
+    // Construct real Flattened Device Tree (FDT v17) per Devicetree Specification
     struct FdtHeader {
         uint32_t magic;
         uint32_t totalsize;
@@ -144,32 +146,163 @@ uint64_t NativeLinuxBootLoader::generateDeviceTreeBlob(
         uint32_t size_dt_struct;
     } __attribute__((packed));
 
+    static const uint32_t FDT_BEGIN_NODE = 0x00000001;
+    static const uint32_t FDT_END_NODE   = 0x00000002;
+    static const uint32_t FDT_PROP       = 0x00000003;
+    static const uint32_t FDT_END        = 0x00000009;
+
     auto toBigEndian32 = [](uint32_t val) -> uint32_t {
         return ((val >> 24) & 0xFF) | ((val >> 8) & 0xFF00) | ((val << 8) & 0xFF0000) | ((val << 24) & 0xFF000000);
     };
 
+    auto toBigEndian64 = [](uint64_t val) -> uint64_t {
+        return ((val >> 56) & 0xFFULL) |
+               ((val >> 40) & 0xFF00ULL) |
+               ((val >> 24) & 0xFF0000ULL) |
+               ((val >> 8)  & 0xFF000000ULL) |
+               ((val << 8)  & 0xFF00000000ULL) |
+               ((val << 24) & 0xFF0000000000ULL) |
+               ((val << 40) & 0xFF000000000000ULL) |
+               ((val << 56) & 0xFF00000000000000ULL);
+    };
+
+    std::vector<uint8_t> dtStruct;
+    std::vector<uint8_t> dtStrings;
+
+    auto addString = [&](const std::string& str) -> uint32_t {
+        for (size_t i = 0; i < dtStrings.size(); ) {
+            if (std::strcmp(reinterpret_cast<const char*>(&dtStrings[i]), str.c_str()) == 0) {
+                return static_cast<uint32_t>(i);
+            }
+            i += std::strlen(reinterpret_cast<const char*>(&dtStrings[i])) + 1;
+        }
+        uint32_t off = static_cast<uint32_t>(dtStrings.size());
+        for (char c : str) dtStrings.push_back(static_cast<uint8_t>(c));
+        dtStrings.push_back(0);
+        return off;
+    };
+
+    auto emitBE32 = [&](uint32_t v) {
+        uint32_t be = toBigEndian32(v);
+        const uint8_t* p = reinterpret_cast<const uint8_t*>(&be);
+        dtStruct.insert(dtStruct.end(), p, p + 4);
+    };
+
+    auto beginNode = [&](const std::string& name) {
+        emitBE32(FDT_BEGIN_NODE);
+        for (char c : name) dtStruct.push_back(static_cast<uint8_t>(c));
+        dtStruct.push_back(0);
+        while (dtStruct.size() % 4 != 0) dtStruct.push_back(0);
+    };
+
+    auto endNode = [&]() {
+        emitBE32(FDT_END_NODE);
+    };
+
+    auto addProp = [&](const std::string& name, const void* data, uint32_t len) {
+        emitBE32(FDT_PROP);
+        emitBE32(len);
+        emitBE32(addString(name));
+        if (len > 0 && data != nullptr) {
+            const uint8_t* p = static_cast<const uint8_t*>(data);
+            dtStruct.insert(dtStruct.end(), p, p + len);
+            while (dtStruct.size() % 4 != 0) dtStruct.push_back(0);
+        }
+    };
+
+    auto addPropU32 = [&](const std::string& name, uint32_t val) {
+        uint32_t be = toBigEndian32(val);
+        addProp(name, &be, 4);
+    };
+
+    auto addPropU64 = [&](const std::string& name, uint64_t val) {
+        uint64_t be = toBigEndian64(val);
+        addProp(name, &be, 8);
+    };
+
+    auto addPropString = [&](const std::string& name, const std::string& str) {
+        addProp(name, str.c_str(), static_cast<uint32_t>(str.length() + 1));
+    };
+
+    // Build Canonical ARM64 FDT
+    beginNode(""); // Root
+    addPropU32("#address-cells", 2);
+    addPropU32("#size-cells", 2);
+    addPropString("model", "linux,dummy-virt");
+    addPropString("compatible", "linux,dummy-virt");
+
+    beginNode("chosen");
+    std::string cmd = config.cmdline.empty() ?
+        "console=ttyAMA0,115200 root=/dev/vda1 rw earlycon=pl011,0x09000000 init=/init" : config.cmdline;
+    addPropString("bootargs", cmd);
+    addPropString("stdout-path", "/pl011@9000000");
+    if (initrdSize > 0) {
+        addPropU64("linux,initrd-start", initrdStart);
+        addPropU64("linux,initrd-end", initrdStart + initrdSize);
+    }
+    endNode(); // /chosen
+
+    beginNode("cpus");
+    addPropU32("#address-cells", 1);
+    addPropU32("#size-cells", 0);
+    int coreCount = std::max(1, config.cpuCount);
+    for (int i = 0; i < coreCount; ++i) {
+        std::string cpuNodeName = "cpu@" + std::to_string(i);
+        beginNode(cpuNodeName);
+        addPropString("device_type", "cpu");
+        addPropString("compatible", "arm,arm-v8");
+        addPropU32("reg", static_cast<uint32_t>(i));
+        addPropString("enable-method", "psci");
+        endNode();
+    }
+    endNode(); // /cpus
+
+    beginNode("memory@0");
+    addPropString("device_type", "memory");
+    uint64_t memReg[2] = { toBigEndian64(0x0ULL), toBigEndian64(config.ramSizeBytes) };
+    addProp("reg", memReg, 16);
+    endNode(); // /memory@0
+
+    beginNode("pl011@9000000");
+    const char pl011Comp[] = "arm,pl011\0arm,primecell";
+    addProp("compatible", pl011Comp, sizeof(pl011Comp));
+    uint64_t uartReg[2] = { toBigEndian64(0x09000000ULL), toBigEndian64(0x1000ULL) };
+    addProp("reg", uartReg, 16);
+    endNode(); // /pl011@9000000
+
+    beginNode("virtio_block@a000000");
+    addPropString("compatible", "virtio,mmio");
+    uint64_t blkReg[2] = { toBigEndian64(0x0a000000ULL), toBigEndian64(0x200ULL) };
+    addProp("reg", blkReg, 16);
+    endNode(); // /virtio_block@a000000
+
+    endNode(); // root node
+    emitBE32(FDT_END);
+
+    // Assemble final FDT buffer
+    size_t headerSize = sizeof(FdtHeader);
+    size_t rsvmapSize = 16; // 0, 0 terminated
+    size_t totalFdtSize = headerSize + rsvmapSize + dtStruct.size() + dtStrings.size();
+
     FdtHeader hdr;
     hdr.magic = toBigEndian32(0xd00dfeed);
-    hdr.totalsize = toBigEndian32(4096);
-    hdr.off_dt_struct = toBigEndian32(sizeof(FdtHeader) + 16);
-    hdr.off_dt_strings = toBigEndian32(2048);
-    hdr.off_mem_rsvmap = toBigEndian32(sizeof(FdtHeader));
+    hdr.totalsize = toBigEndian32(static_cast<uint32_t>(totalFdtSize));
+    hdr.off_mem_rsvmap = toBigEndian32(static_cast<uint32_t>(headerSize));
+    hdr.off_dt_struct = toBigEndian32(static_cast<uint32_t>(headerSize + rsvmapSize));
+    hdr.off_dt_strings = toBigEndian32(static_cast<uint32_t>(headerSize + rsvmapSize + dtStruct.size()));
     hdr.version = toBigEndian32(17);
     hdr.last_comp_version = toBigEndian32(16);
     hdr.boot_cpuid_phys = 0;
-    hdr.size_dt_strings = toBigEndian32(512);
-    hdr.size_dt_struct = toBigEndian32(1024);
+    hdr.size_dt_strings = toBigEndian32(static_cast<uint32_t>(dtStrings.size()));
+    hdr.size_dt_struct = toBigEndian32(static_cast<uint32_t>(dtStruct.size()));
 
-    if (memory.isValidAddress(dtbOffset, 4096)) {
+    if (memory.isValidAddress(dtbOffset, totalFdtSize)) {
         uint8_t* ptr = memory.getRawBuffer() + dtbOffset;
-        std::memset(ptr, 0, 4096);
-        std::memcpy(ptr, &hdr, sizeof(FdtHeader));
-
-        // Embed validated kernel command line into FDT structure
-        std::string cmd = config.cmdline.empty() ? 
-            "console=ttyAMA0,115200 root=/dev/vda rw earlycon=pl011,0x09000000" : config.cmdline;
-        size_t cmdOffset = sizeof(FdtHeader) + 32;
-        std::memcpy(ptr + cmdOffset, cmd.c_str(), std::min(cmd.length(), (size_t)256));
+        std::memset(ptr, 0, totalFdtSize);
+        std::memcpy(ptr, &hdr, headerSize);
+        // rsvmap remains 16 zeroes
+        std::memcpy(ptr + headerSize + rsvmapSize, dtStruct.data(), dtStruct.size());
+        std::memcpy(ptr + headerSize + rsvmapSize + dtStruct.size(), dtStrings.data(), dtStrings.size());
     }
 
     return dtbOffset;

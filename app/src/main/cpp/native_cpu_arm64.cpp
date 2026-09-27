@@ -48,14 +48,16 @@ void NativeCPUARM64::handleStore64(uint64_t address, uint64_t value, NativeMemor
 }
 
 uint8_t NativeCPUARM64::handleLoad8(uint64_t address, NativeMemory& memory, NativeDeviceManager& devices) {
-    uint8_t mmioVal = devices.handleMMIORead8(address);
-    if (mmioVal != 0) return mmioVal;
+    if (devices.isMMIOAddress(address)) {
+        return devices.handleMMIORead8(address);
+    }
     return memory.read8(address);
 }
 
 uint32_t NativeCPUARM64::handleLoad32(uint64_t address, NativeMemory& memory, NativeDeviceManager& devices) {
-    uint32_t mmioVal = devices.handleMMIORead32(address);
-    if (mmioVal != 0) return mmioVal;
+    if (devices.isMMIOAddress(address)) {
+        return devices.handleMMIORead32(address);
+    }
     return memory.read32(address);
 }
 

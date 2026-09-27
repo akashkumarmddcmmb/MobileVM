@@ -212,7 +212,8 @@ class VMViewModel(application: Application) : AndroidViewModel(application) {
         kernelImagePath: String = "",
         initramfsPath: String = "",
         kernelCmdline: String = "console=ttyAMA0,115200 root=/dev/vda1 rw init=/init earlycon=pl011,0x09000000",
-        consoleDevice: String = "ttyAMA0 (PL011 UART)"
+        consoleDevice: String = "ttyAMA0 (PL011 UART)",
+        diskImagePath: String = ""
     ) {
         viewModelScope.launch {
             // Security verification: Guest asset paths must not access arbitrary host files
@@ -238,8 +239,21 @@ class VMViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
 
+            if (diskImagePath.isNotBlank() && !diskBackend.isPathAuthorized(diskImagePath) && !diskBackend.isGuestImagePathAuthorized(diskImagePath)) {
+                val vmErr = com.example.vm.core.VMError(
+                    category = com.example.vm.core.VMErrorCategory.DISK_INVALID,
+                    summary = "Security: Unauthorized Disk Path",
+                    technicalDetails = "Path traversal or arbitrary host file access blocked: $diskImagePath",
+                    suggestedRemedy = "Place disk image inside app private storage (${diskBackend.getAuthorizedDisksDirectory().absolutePath})."
+                )
+                reportError(vmErr)
+                return@launch
+            }
+
             val disksDir = diskBackend.getAuthorizedDisksDirectory()
-            val diskImagePath = if (id != 0L) {
+            val finalDiskImagePath = if (diskImagePath.isNotBlank()) {
+                diskImagePath
+            } else if (id != 0L) {
                 // Preserve existing disk image path when updating config
                 val existing = vmConfigurations.value.find { it.id == id }
                 existing?.diskImagePath ?: File(disksDir, "${name.replace("\\s+".toRegex(), "_").lowercase()}_system.img").absolutePath
@@ -261,7 +275,7 @@ class VMViewModel(application: Application) : AndroidViewModel(application) {
                 cpuCores = cpuCores,
                 ramSizeMb = ramSizeMb,
                 diskSizeGb = diskSizeGb,
-                diskImagePath = diskImagePath,
+                diskImagePath = finalDiskImagePath,
                 useHardwareVirtualization = useHardwareVirtualization,
                 networkEnabled = networkEnabled,
                 serialConsoleEnabled = serialConsoleEnabled,
@@ -272,7 +286,10 @@ class VMViewModel(application: Application) : AndroidViewModel(application) {
             )
 
             if (id == 0L) {
-                diskBackend.createDiskImage(diskImagePath, diskSizeGb, sparse = true)
+                // Only generate a blank disk if the specified image does not exist yet
+                if (!File(finalDiskImagePath).exists()) {
+                    diskBackend.createDiskImage(finalDiskImagePath, diskSizeGb, sparse = true)
+                }
                 repository.insertConfig(config)
             } else {
                 repository.updateConfig(config)

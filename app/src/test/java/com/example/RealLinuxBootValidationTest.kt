@@ -9,6 +9,8 @@ import com.example.vm.guest.initramfs.GuestInitramfsDownloader
 import com.example.vm.guest.initramfs.GuestInitramfsManager
 import com.example.vm.guest.kernel.GuestKernelDownloader
 import com.example.vm.guest.kernel.GuestKernelManager
+import com.example.vm.guest.ubuntu.UbuntuGuestManager
+import com.example.vm.guest.ubuntu.UbuntuArtifactValidation
 import com.example.vm.storage.AndroidStorageDiskBackend
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
@@ -162,5 +164,116 @@ class RealLinuxBootValidationTest {
         engine.stop()
         assertEquals(VMState.STOPPED, engine.state.value)
         engine.destroy()
+    }
+
+    @Test
+    fun `arm64 kernel validation rejects ISO image`() {
+        val testIsoFile = File(context.cacheDir, "ubuntu-24.04-arm64.iso")
+        testIsoFile.writeBytes(ByteArray(1024))
+
+        val info = GuestKernelManager.inspectKernel(testIsoFile.absolutePath)
+        assertFalse("ISO image must not be accepted as ARM64 kernel", info.isArm64Valid)
+        assertTrue("ISO image flag must be true", info.isIsoImage)
+        assertTrue(info.formatDescription.contains("ISO optical disc image detected"))
+
+        testIsoFile.delete()
+    }
+
+    @Test
+    fun `ubuntu prerequisites validation passes with valid artifacts and fails on ISO`() {
+        val validKernelFile = File(context.cacheDir, "vmlinuz-generic")
+        val headerBytes = ByteArray(128)
+        headerBytes[0x38] = 0x41.toByte()
+        headerBytes[0x39] = 0x52.toByte()
+        headerBytes[0x3A] = 0x4D.toByte()
+        headerBytes[0x3B] = 0x64.toByte()
+        validKernelFile.writeBytes(headerBytes)
+
+        val validInitrdFile = File(context.cacheDir, "initrd-generic")
+        val gzipBytes = ByteArray(64)
+        gzipBytes[0] = 0x1F.toByte()
+        gzipBytes[1] = 0x8B.toByte()
+        validInitrdFile.writeBytes(gzipBytes)
+
+        val validDiskFile = File(diskBackend.getAuthorizedDisksDirectory(), "ubuntu_rootfs.img")
+        validDiskFile.writeBytes(ByteArray(1024))
+
+        // 1. Valid prerequisites check
+        val validation = UbuntuGuestManager.validateUbuntuPrerequisites(
+            kernelPath = validKernelFile.absolutePath,
+            initramfsPath = validInitrdFile.absolutePath,
+            diskPath = validDiskFile.absolutePath
+        )
+        assertTrue("Prerequisites must be satisfied", validation is UbuntuArtifactValidation.Ready)
+
+        // 2. Rejecting when ISO is supplied instead of kernel
+        val isoKernelFile = File(context.cacheDir, "ubuntu.iso")
+        isoKernelFile.writeBytes(ByteArray(512))
+        val isoValidation = UbuntuGuestManager.validateUbuntuPrerequisites(
+            kernelPath = isoKernelFile.absolutePath,
+            initramfsPath = validInitrdFile.absolutePath,
+            diskPath = validDiskFile.absolutePath
+        )
+        assertTrue("ISO in kernel field must be rejected", isoValidation is UbuntuArtifactValidation.MissingPrerequisite)
+
+        validKernelFile.delete()
+        validInitrdFile.delete()
+        validDiskFile.delete()
+        isoKernelFile.delete()
+    }
+
+    @Test
+    fun `disk backend imports raw disk image into authorized directory`() {
+        val sourceData = ByteArray(1024) { 0x42.toByte() }
+        val inputStream = ByteArrayInputStream(sourceData)
+
+        val imported = diskBackend.importDiskImage(inputStream, "ubuntu_imported.img")
+        assertNotNull("Imported disk file must not be null", imported)
+        assertTrue("Imported disk must exist", imported!!.exists())
+        assertTrue("Imported disk must be inside authorized directory", diskBackend.isPathAuthorized(imported.absolutePath))
+        assertEquals(1024L, imported.length())
+
+        imported.delete()
+    }
+
+    @Test
+    fun `virtual disk read write operations enforce bounds and persist data`() {
+        val testDisk = File(diskBackend.getAuthorizedDisksDirectory(), "bounds_test.img")
+        val success = diskBackend.createDiskImage(testDisk.absolutePath, 1, false) // 1 GB sparse disk
+        assertTrue("Disk creation must succeed", success)
+        assertTrue("Disk must exist", testDisk.exists())
+
+        val mbrInfo = diskBackend.inspectMBR(testDisk.absolutePath)
+        assertNotNull("MBR info must be present", mbrInfo)
+        assertTrue("MBR signature 0xAA55 must be valid", mbrInfo!!.isValidSignature)
+        assertTrue("Linux partition must be detected", mbrInfo.partitions.any { it.typeHex == "0x83" })
+
+        // Test writing sector at LBA 10
+        val testPayload = ByteArray(512) { 0x7E.toByte() }
+        val writeOk = diskBackend.writeSectors(testDisk.absolutePath, 10, testPayload)
+        assertTrue("Writing sector 10 must succeed", writeOk)
+
+        val readBack = diskBackend.readSectors(testDisk.absolutePath, 10, 1)
+        assertNotNull("Read back data must not be null", readBack)
+        assertEquals(512, readBack!!.size)
+        assertEquals(0x7E.toByte(), readBack[0])
+
+        // Test out-of-bounds sector write
+        val oobLba = (1024L * 1024L * 1024L / 512L) + 10L
+        val oobWrite = diskBackend.writeSectors(testDisk.absolutePath, oobLba, testPayload)
+        assertFalse("Out-of-bounds write must be blocked", oobWrite)
+
+        testDisk.delete()
+    }
+
+    @Test
+    fun `ubuntu guest system profile defines correct kernel cmdline and virtio root`() {
+        val profile = UbuntuGuestManager.getProfile()
+        assertEquals("Ubuntu 24.04 LTS (Noble Numbat)", profile.releaseName)
+        assertEquals("aarch64", profile.architecture)
+        assertEquals("/dev/vda1", profile.virtioRootDevice)
+        assertTrue(profile.defaultKernelCmdline.contains("root=/dev/vda1"))
+        assertTrue(profile.defaultKernelCmdline.contains("console=ttyAMA0"))
+        assertTrue(profile.defaultKernelCmdline.contains("earlycon=pl011"))
     }
 }

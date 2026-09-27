@@ -46,7 +46,7 @@ public:
 
 private:
     static bool loadCustomKernel(const LinuxBootConfig& config, NativeMemory& memory, NativeCPUBackend& cpu, std::string& outLog);
-    static uint64_t generateDeviceTreeBlob(const LinuxBootConfig& config, NativeMemory& memory, uint64_t dtbOffset);
+    static uint64_t generateDeviceTreeBlob(const LinuxBootConfig& config, NativeMemory& memory, uint64_t dtbOffset, uint64_t initrdStart = 0, uint64_t initrdSize = 0);
 };
 
 #endif // NATIVE_LINUX_BOOT_H
