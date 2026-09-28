@@ -21,6 +21,7 @@ public:
     NativeUART();
     void writeByte(uint8_t byte);
     bool hasTxData();
+    bool hasRxData();
     std::vector<uint8_t> readTxBuffer();
     void queueRxByte(uint8_t byte);
     uint8_t readRxByte();

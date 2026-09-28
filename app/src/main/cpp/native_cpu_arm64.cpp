@@ -127,7 +127,7 @@ void NativeCPUARM64::updateTimer(uint64_t cycles, NativeDeviceManager& devices) 
     if (vEnabled && (cntvct_el0 >= cntv_cval_el0)) {
         cntv_ctl_el0 |= (1u << 2); // Set ISTATUS
         if (!vMasked) {
-            devices.getGIC().setInterruptPending(NativeGIC::IRQ_VIRTIO_BLK ? NativeGIC::IRQ_VIRTUAL_TIMER : 27, true);
+            devices.getGIC().setInterruptPending(NativeGIC::IRQ_VIRTUAL_TIMER, true);
         }
     } else {
         cntv_ctl_el0 &= ~(1u << 2); // Clear ISTATUS

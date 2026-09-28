@@ -214,21 +214,35 @@ fun VMHomeView(
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
+                    icon = { Icon(Icons.Default.CloudDownload, contentDescription = "Guest OS Center") },
+                    label = { Text("Guest OS") },
+                    modifier = Modifier.testTag("nav_tab_guest_os")
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 2,
+                    onClick = { selectedTab = 2 },
+                    icon = { Icon(Icons.Default.Storage, contentDescription = "Storage Manager") },
+                    label = { Text("Storage") },
+                    modifier = Modifier.testTag("nav_tab_storage")
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 3,
+                    onClick = { selectedTab = 3 },
                     icon = { Icon(Icons.Default.Terminal, contentDescription = "Terminal") },
                     label = { Text("Console") },
                     enabled = activeVM != null,
                     modifier = Modifier.testTag("nav_tab_console")
                 )
                 NavigationBarItem(
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
+                    selected = selectedTab == 4,
+                    onClick = { selectedTab = 4 },
                     icon = { Icon(Icons.Default.Usb, contentDescription = "USB Devices") },
                     label = { Text("OTG USB") },
                     modifier = Modifier.testTag("nav_tab_usb")
                 )
                 NavigationBarItem(
-                    selected = selectedTab == 3,
-                    onClick = { selectedTab = 3 },
+                    selected = selectedTab == 5,
+                    onClick = { selectedTab = 5 },
                     icon = { Icon(Icons.Default.BugReport, contentDescription = "Debug & Diagnostics") },
                     label = { Text("Debug") },
                     modifier = Modifier.testTag("nav_tab_debug")
@@ -278,15 +292,27 @@ fun VMHomeView(
                         inspectingDiskConfig = config
                     }
                 )
-                1 -> {
+                1 -> OSManagerScreen(
+                    downloadManager = viewModel.downloadManager,
+                    onBack = { selectedTab = 0 },
+                    onConfigured = { config ->
+                        viewModel.startVM(config)
+                        selectedTab = 0
+                    }
+                )
+                2 -> VMStorageManagerScreen(
+                    viewModel = viewModel,
+                    onBack = { selectedTab = 0 }
+                )
+                3 -> {
                     activeVM?.let {
                         ConsoleTab(viewModel = viewModel, engine = it)
                     } ?: run {
                         selectedTab = 0
                     }
                 }
-                2 -> UsbTab(viewModel = viewModel)
-                3 -> DebugScreen(viewModel = viewModel)
+                4 -> UsbTab(viewModel = viewModel)
+                5 -> DebugScreen(viewModel = viewModel)
             }
 
             if (showCreateDialog) {

@@ -68,10 +68,10 @@ class ARM64EmulatorTest {
         val status = backend.getStatus()
 
         assertTrue(status.isNativeEngineActive)
-        assertTrue(status.canExecuteLinuxKernel)
+        assertFalse(status.canExecuteLinuxKernel)
         assertTrue(status.supportedInstructionSets.contains("ARMv8.0-A Base"))
         assertTrue(status.supportedInstructionSets.contains("MMU/Page Faults"))
-        assertEquals("ARM64 Software Emulation", backend.getBackendName())
+        assertEquals(CPUBackendType.ARM64_EMULATION.displayName, backend.getBackendName())
     }
 
     // --- Architectural Emulation Validation & Logic Tests ---

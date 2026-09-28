@@ -53,20 +53,26 @@ class AndroidStorageDiskBackend(private val context: Context) : DiskBackend {
     override fun isPathAuthorized(targetPath: String): Boolean {
         if (targetPath.isBlank()) return false
         return try {
-            val authorizedDir = getAuthorizedDisksDirectory().canonicalFile
             val file = File(targetPath).canonicalFile
-            
-            // Must strictly reside inside authorized disks directory
-            var parent: File? = file.parentFile
-            var isContained = false
-            while (parent != null) {
-                if (parent == authorizedDir) {
-                    isContained = true
-                    break
+            val authorizedDirs = listOfNotNull(
+                getAuthorizedDisksDirectory().canonicalFile,
+                context.filesDir?.canonicalFile,
+                context.getExternalFilesDir(null)?.canonicalFile,
+                context.cacheDir?.canonicalFile
+            )
+
+            authorizedDirs.any { dir ->
+                var parent: File? = file.parentFile
+                var isContained = false
+                while (parent != null) {
+                    if (parent == dir) {
+                        isContained = true
+                        break
+                    }
+                    parent = parent.parentFile
                 }
-                parent = parent.parentFile
+                isContained
             }
-            isContained
         } catch (e: Exception) {
             Log.w(TAG, "Security: Path canonicalization error for $targetPath: ${e.message}")
             false

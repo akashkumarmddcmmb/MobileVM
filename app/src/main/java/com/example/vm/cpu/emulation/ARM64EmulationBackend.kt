@@ -29,7 +29,7 @@ class StandardARM64EmulationBackend(
             isNativeEngineActive = isNativeLoaded,
             interpreterCore = if (isNativeLoaded) "Native AArch64 C++ Engine" else "JVM Managed Fallback",
             supportedInstructionSets = listOf("ARMv8.0-A Base", "A64 Scalar Integer", "SysRegs", "MMU/Page Faults"),
-            canExecuteLinuxKernel = true
+            canExecuteLinuxKernel = false // Unverified until an actual guest kernel boot test succeeds
         )
     }
 

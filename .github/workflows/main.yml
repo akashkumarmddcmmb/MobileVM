@@ -156,6 +156,15 @@ jobs:
             --stacktrace \
             assembleDebug
 
+      - name: Run Unit Tests
+        shell: bash
+        run: |
+          set -e
+
+          gradle \
+            --no-daemon \
+            testDebugUnitTest
+
       - name: Verify APK
         shell: bash
         run: |

@@ -15,6 +15,11 @@ bool NativeUART::hasTxData() {
     return !txBuffer.empty();
 }
 
+bool NativeUART::hasRxData() {
+    std::lock_guard<std::mutex> lock(uartMutex);
+    return !rxBuffer.empty();
+}
+
 std::vector<uint8_t> NativeUART::readTxBuffer() {
     std::lock_guard<std::mutex> lock(uartMutex);
     std::vector<uint8_t> out = std::move(txBuffer);
@@ -395,14 +400,19 @@ uint32_t NativeDeviceManager::handleMMIORead32(uint64_t address) {
     if (address >= 0x09000000ULL && address < 0x09001000ULL) {
         uint64_t reg = address - 0x09000000ULL;
         switch (reg) {
-            case 0x00: // UARTDR (Data register)
-                return static_cast<uint32_t>(uart.readRxByte());
+            case 0x00: { // UARTDR (Data register)
+                uint8_t val = uart.readRxByte();
+                if (!uart.hasRxData()) {
+                    gic.setInterruptPending(NativeGIC::IRQ_UART, false);
+                }
+                return static_cast<uint32_t>(val);
+            }
             case 0x18: { // UARTFR (Flag register)
-                // Bit 7: TXFE (TX FIFO empty) = 1 (Ready)
-                // Bit 5: TXFF (TX FIFO full) = 0
-                // Bit 4: RXFE (RX FIFO empty)
-                uint32_t flags = (1u << 7);
-                if (!uart.hasTxData()) flags |= (1u << 4);
+                // Bit 7: TXFE (TX FIFO empty) = 1 when txBuffer empty
+                // Bit 4: RXFE (RX FIFO empty) = 1 when rxBuffer empty
+                uint32_t flags = 0;
+                if (!uart.hasTxData()) flags |= (1u << 7);
+                if (!uart.hasRxData()) flags |= (1u << 4);
                 return flags;
             }
             case 0x24: return 1;    // UARTIBRD

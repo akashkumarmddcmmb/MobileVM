@@ -374,12 +374,16 @@ uint64_t NativeLinuxBootLoader::generateDeviceTreeBlob(
     addProp("compatible", pl011Comp, sizeof(pl011Comp));
     uint64_t uartReg[2] = { toBigEndian64(0x09000000ULL), toBigEndian64(0x1000ULL) };
     addProp("reg", uartReg, 16);
+    uint32_t uartInts[3] = { toBigEndian32(0), toBigEndian32(1), toBigEndian32(4) }; // GIC SPI 1 (IRQ 33)
+    addProp("interrupts", uartInts, 12);
     endNode(); // /pl011@9000000
 
     beginNode("virtio_block@a000000");
     addPropString("compatible", "virtio,mmio");
     uint64_t blkReg[2] = { toBigEndian64(0x0a000000ULL), toBigEndian64(0x200ULL) };
     addProp("reg", blkReg, 16);
+    uint32_t blkInts[3] = { toBigEndian32(0), toBigEndian32(16), toBigEndian32(4) }; // GIC SPI 16 (IRQ 48)
+    addProp("interrupts", blkInts, 12);
     endNode(); // /virtio_block@a000000
 
     endNode(); // root node

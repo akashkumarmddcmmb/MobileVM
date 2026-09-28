@@ -27,11 +27,12 @@ import java.io.File
 
 class VMViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository: VMRepository
+    val repository: VMRepository
     val vmConfigurations: StateFlow<List<VMConfig>>
 
     val diskBackend = AndroidStorageDiskBackend(application)
     val memoryManager = com.example.vm.memory.MemoryManager(application)
+    val downloadManager = com.example.vm.guest.os.OSDownloadManager(application)
 
     val hostArchitecture: HostArchitecture = HostArchitecture.detect()
     val isKvmSupported: Boolean = if (NativeVMBinding.isLoaded()) NativeVMBinding.nativeIsKvmSupported() else false
@@ -57,10 +58,44 @@ class VMViewModel(application: Application) : AndroidViewModel(application) {
     val usbIdentifications: StateFlow<Map<String, com.example.vm.usb.UsbDeviceIdentification>> = usbDeviceManager.identifications
     val usbErrors: StateFlow<Map<String, com.example.vm.usb.UsbDeviceError>> = usbDeviceManager.errors
 
+    lateinit var storageManager: com.example.vm.storage.VMStorageManager
+    lateinit var allDisks: StateFlow<List<com.example.vm.storage.VmDisk>>
+    lateinit var allSnapshots: StateFlow<List<com.example.vm.storage.VmSnapshot>>
+    lateinit var allBackups: StateFlow<List<com.example.vm.storage.VmBackup>>
+    lateinit var storageLogs: StateFlow<List<com.example.vm.storage.StorageOperationLog>>
+
     init {
         val database = VMDatabase.getDatabase(application)
-        repository = VMRepository(database.vmConfigDao())
+        repository = VMRepository(
+            database.vmConfigDao(),
+            database.vmDiskDao(),
+            database.vmSnapshotDao(),
+            database.vmBackupDao(),
+            database.storageOperationLogDao()
+        )
+        storageManager = com.example.vm.storage.VMStorageManager(application, repository, diskBackend)
+
         vmConfigurations = repository.allConfigs.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+        allDisks = repository.allDisks.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+        allSnapshots = repository.allSnapshots.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+        allBackups = repository.allBackups.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+        storageLogs = repository.recentStorageLogs.stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
@@ -195,6 +230,73 @@ class VMViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 reportError(vmErr)
             }
+        }
+    }
+
+    fun saveFullConfig(config: VMConfig) {
+        viewModelScope.launch {
+            // Security verification: Guest asset paths must not access arbitrary host files
+            if (config.kernelImagePath.isNotBlank() && !diskBackend.isGuestImagePathAuthorized(config.kernelImagePath)) {
+                val vmErr = com.example.vm.core.VMError(
+                    category = com.example.vm.core.VMErrorCategory.KERNEL_MISSING,
+                    summary = "Security: Unauthorized Kernel Path",
+                    technicalDetails = "Path traversal or arbitrary host file access blocked: ${config.kernelImagePath}",
+                    suggestedRemedy = "Place kernel image inside app private storage (${diskBackend.getAuthorizedAssetsDirectory().absolutePath}) or leave blank for built-in Linux 6.6.0."
+                )
+                reportError(vmErr)
+                return@launch
+            }
+
+            if (config.initramfsPath.isNotBlank() && !diskBackend.isGuestImagePathAuthorized(config.initramfsPath)) {
+                val vmErr = com.example.vm.core.VMError(
+                    category = com.example.vm.core.VMErrorCategory.INITRAMFS_MISSING,
+                    summary = "Security: Unauthorized Initramfs Path",
+                    technicalDetails = "Path traversal or arbitrary host file access blocked: ${config.initramfsPath}",
+                    suggestedRemedy = "Place initramfs inside app private storage (${diskBackend.getAuthorizedAssetsDirectory().absolutePath}) or leave blank."
+                )
+                reportError(vmErr)
+                return@launch
+            }
+
+            if (config.diskImagePath.isNotBlank() && !diskBackend.isPathAuthorized(config.diskImagePath) && !diskBackend.isGuestImagePathAuthorized(config.diskImagePath)) {
+                val vmErr = com.example.vm.core.VMError(
+                    category = com.example.vm.core.VMErrorCategory.DISK_INVALID,
+                    summary = "Security: Unauthorized Disk Path",
+                    technicalDetails = "Path traversal or arbitrary host file access blocked: ${config.diskImagePath}",
+                    suggestedRemedy = "Place disk image inside app private storage (${diskBackend.getAuthorizedDisksDirectory().absolutePath})."
+                )
+                reportError(vmErr)
+                return@launch
+            }
+
+            val disksDir = diskBackend.getAuthorizedDisksDirectory()
+            val finalDiskImagePath = if (config.diskImagePath.isNotBlank()) {
+                config.diskImagePath
+            } else if (config.id != 0L) {
+                val existing = vmConfigurations.value.find { it.id == config.id }
+                existing?.diskImagePath ?: File(disksDir, "${config.name.replace("\\s+".toRegex(), "_").lowercase()}_system.img").absolutePath
+            } else {
+                val baseDiskName = "${config.name.replace("\\s+".toRegex(), "_").lowercase()}_system"
+                var targetFile = File(disksDir, "${baseDiskName}.img")
+                if (targetFile.exists()) {
+                    targetFile = File(disksDir, "${baseDiskName}_${System.currentTimeMillis() % 10000}.img")
+                }
+                targetFile.absolutePath
+            }
+
+            val finalConfig = config.copy(diskImagePath = finalDiskImagePath)
+
+            if (finalConfig.id == 0L) {
+                if (!File(finalDiskImagePath).exists()) {
+                    diskBackend.createDiskImage(finalDiskImagePath, finalConfig.diskSizeGb, sparse = true)
+                }
+                val insertedId = repository.insertConfig(finalConfig)
+                _selectedConfig.value = finalConfig.copy(id = insertedId)
+            } else {
+                repository.updateConfig(finalConfig)
+                _selectedConfig.value = finalConfig
+            }
+            clearErrorMessage()
         }
     }
 

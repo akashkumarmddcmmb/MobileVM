@@ -180,8 +180,9 @@ void NativeVMEngine::writeSerialRx(uint8_t byte) {
         return;
     }
 
-    // Deliver keyboard input exclusively to guest UART RX register
+    // Deliver keyboard input exclusively to guest UART RX register & assert UART IRQ
     devices.getUART().queueRxByte(byte);
+    devices.getGIC().setInterruptPending(NativeGIC::IRQ_UART, true);
 }
 
 const uint32_t* NativeVMEngine::getFramebuffer() const {
