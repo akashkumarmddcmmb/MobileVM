@@ -17,7 +17,7 @@ data class StorageCapacityReport(
 
 object OSStorageManager {
 
-    const val SAFETY_MARGIN_BYTES: Long = 500L * 1024L * 1024L // 500 MB safety headroom
+    const val SAFETY_MARGIN_BYTES: Long = 50L * 1024L * 1024L // 50 MB safety headroom
 
     /**
      * Inspects available device internal storage against the required download size.
@@ -94,8 +94,16 @@ object OSStorageManager {
             val dir = getOsPrivateDirectory(context, manifest.id)
             val kernelFile = File(dir, "vmlinuz")
             val initrdFile = File(dir, "initrd")
-            kernelFile.exists() && kernelFile.length() > 0 &&
-                    initrdFile.exists() && initrdFile.length() > 0
+            val rootfsFile = File(dir, "rootfs.img")
+            val isoFile = File(dir, "installer.iso")
+
+            if (manifest.kernelUrl.isNotBlank()) {
+                val hasKernel = kernelFile.exists() && kernelFile.length() > 0
+                val hasInitrd = manifest.initramfsUrl.isBlank() || (initrdFile.exists() && initrdFile.length() > 0)
+                hasKernel && hasInitrd
+            } else {
+                (rootfsFile.exists() && rootfsFile.length() > 0) || (isoFile.exists() && isoFile.length() > 0)
+            }
         } catch (_: Exception) {
             false
         }

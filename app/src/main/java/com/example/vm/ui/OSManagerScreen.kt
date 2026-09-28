@@ -575,26 +575,171 @@ fun OSManifestCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            if (isInstalled) {
-                Button(
-                    onClick = onConfigureVM,
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.fillMaxWidth().testTag("btn_configure_${manifest.id}")
-                ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = "Create", tint = Color.Black)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Create VM From Image", color = Color.Black, fontWeight = FontWeight.Bold)
+            when {
+                isInstalled -> {
+                    Button(
+                        onClick = onConfigureVM,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.fillMaxWidth().testTag("btn_configure_${manifest.id}")
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = "Create", tint = Color.Black)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Create VM From Image", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
                 }
-            } else {
-                Button(
-                    onClick = onDownload,
-                    enabled = progress.state != OSDownloadState.DOWNLOADING,
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.fillMaxWidth().testTag("btn_download_${manifest.id}")
-                ) {
-                    Icon(Icons.Default.Download, contentDescription = "Download", tint = Color.Black)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Download OS Image", color = Color.Black, fontWeight = FontWeight.Bold)
+
+                progress.state == OSDownloadState.DOWNLOADING -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${progress.progressPercent}% • ${progress.bytesDownloaded / (1024 * 1024)} / ${progress.totalBytes / (1024 * 1024)} MB",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                text = "${progress.speedBytesPerSec / 1024} KB/s",
+                                fontSize = 11.sp,
+                                color = Color.Gray,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+
+                        LinearProgressIndicator(
+                            progress = { progress.progressPercent / 100f },
+                            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = Color(0xFF232D38)
+                        )
+
+                        Text(
+                            text = progress.statusMessage,
+                            fontSize = 11.sp,
+                            color = Color.LightGray
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = onPause,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Pause", fontSize = 11.sp)
+                            }
+                            OutlinedButton(
+                                onClick = onCancel,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Cancel", fontSize = 11.sp, color = Color(0xFFFF5252))
+                            }
+                        }
+                    }
+                }
+
+                progress.state == OSDownloadState.QUEUED ||
+                progress.state == OSDownloadState.VERIFYING ||
+                progress.state == OSDownloadState.INSTALLING -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = Color(0xFF232D38)
+                        )
+                        Text(
+                            text = progress.statusMessage,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        OutlinedButton(
+                            onClick = onCancel,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Cancel", fontSize = 11.sp, color = Color(0xFFFF5252))
+                        }
+                    }
+                }
+
+                progress.state == OSDownloadState.PAUSED -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Download paused at ${progress.progressPercent}%.",
+                            fontSize = 12.sp,
+                            color = Color(0xFFFFD54F)
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = onResume,
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Resume", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                            OutlinedButton(
+                                onClick = onCancel,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Cancel", fontSize = 12.sp, color = Color(0xFFFF5252))
+                            }
+                        }
+                    }
+                }
+
+                progress.state == OSDownloadState.FAILED -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Surface(
+                            color = Color(0x33FF5252),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, Color(0x66FF5252)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.ErrorOutline, contentDescription = "Error", tint = Color(0xFFFF5252), modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Download Error", color = Color(0xFFFF5252), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = progress.errorMessage ?: progress.statusMessage,
+                                    color = Color.White,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = onDownload,
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            modifier = Modifier.fillMaxWidth().testTag("btn_retry_${manifest.id}")
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color.Black)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Retry Download", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                else -> {
+                    Button(
+                        onClick = onDownload,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.fillMaxWidth().testTag("btn_download_${manifest.id}")
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = "Download", tint = Color.Black)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Download OS Image", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
