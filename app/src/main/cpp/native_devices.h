@@ -7,6 +7,7 @@
 #include <mutex>
 #include "native_disk.h"
 #include "native_input.h"
+#include "native_gic.h"
 
 enum class NativePowerEvent {
     NONE = 0,
@@ -69,6 +70,8 @@ public:
     const NativeDisk& getDisk() const { return disk; }
     NativeInputDevice& getInput() { return inputDevice; }
     const NativeInputDevice& getInput() const { return inputDevice; }
+    NativeGIC& getGIC() { return gic; }
+    const NativeGIC& getGIC() const { return gic; }
 
     NativePowerEvent pollPowerEvent();
     void resetAll();
@@ -80,6 +83,7 @@ private:
     NativeDisplay display;
     NativeDisk disk;
     NativeInputDevice inputDevice;
+    NativeGIC gic;
     NativePowerEvent powerEvent;
     std::mutex deviceMutex;
 

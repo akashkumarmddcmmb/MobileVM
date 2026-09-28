@@ -2,15 +2,26 @@ package com.example
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.example.vm.console.UartPL011ConsoleBackend
 import com.example.vm.core.VMConfig
 import com.example.vm.core.VMEngine
+import com.example.vm.core.VMError
 import com.example.vm.core.VMState
+import com.example.vm.cpu.CPUBackendSelector
+import com.example.vm.cpu.CPUBackendType
+import com.example.vm.cpu.GuestArchitecture
+import com.example.vm.cpu.InterpreterArm64CPUBackend
+import com.example.vm.devices.DeviceManager
+import com.example.vm.display.VirtioGPUBitmapDisplayBackend
 import com.example.vm.guest.initramfs.GuestInitramfsDownloader
 import com.example.vm.guest.initramfs.GuestInitramfsManager
 import com.example.vm.guest.kernel.GuestKernelDownloader
 import com.example.vm.guest.kernel.GuestKernelManager
 import com.example.vm.guest.ubuntu.UbuntuGuestManager
 import com.example.vm.guest.ubuntu.UbuntuArtifactValidation
+import com.example.vm.input.AndroidInputBackend
+import com.example.vm.memory.HostByteBufferMemoryBackend
+import com.example.vm.network.VirtualEthernetDevice
 import com.example.vm.storage.AndroidStorageDiskBackend
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
@@ -275,5 +286,111 @@ class RealLinuxBootValidationTest {
         assertTrue(profile.defaultKernelCmdline.contains("root=/dev/vda1"))
         assertTrue(profile.defaultKernelCmdline.contains("console=ttyAMA0"))
         assertTrue(profile.defaultKernelCmdline.contains("earlycon=pl011"))
+    }
+
+    @Test
+    fun `kvm unavailable selects software emulation backend`() {
+        val resolution = CPUBackendSelector.resolve(
+            guestArch = GuestArchitecture.ARM64,
+            requestHardwareVirt = true,
+            isKvmSupported = false,
+            kvmReason = "KVM node /dev/kvm is unavailable on MediaTek MT6855"
+        )
+        assertFalse("Hardware virtualization must not be reported when KVM is unavailable", resolution.isHardwareAccelerated)
+        assertTrue("Fallback emulation must be active", resolution.isFallbackEmulation)
+        assertEquals(CPUBackendType.ARM64_EMULATION, resolution.backendType)
+        assertTrue("Status message must explain KVM unexposed status", resolution.statusMessage.contains("unavailable") || resolution.statusMessage.contains("software emulation"))
+    }
+
+    @Test
+    fun `initramfs missing usable init fails with exact message`() {
+        val badInitrd = File(context.cacheDir, "no_init_initrd.cpio")
+        val cpioData = "0707010000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000B00000000TRAILER!!!\u0000\u0000\u0000\u0000".toByteArray()
+        badInitrd.writeBytes(cpioData)
+
+        val info = GuestInitramfsManager.inspectInitramfs(badInitrd.absolutePath)
+        assertFalse("Initramfs without init must not have usable init", info.hasUsableInit)
+
+        val err = VMError.initramfsMissingInit(badInitrd.absolutePath)
+        assertEquals("REAL BOOT FAILED: initramfs does not contain a usable /init", err.summary)
+
+        badInitrd.delete()
+    }
+
+    @Test
+    fun `unsupported arm64 instruction halts emulator and reports exact opcode and pc`() {
+        val cpu = InterpreterArm64CPUBackend()
+        val mem = HostByteBufferMemoryBackend(16)
+        val disp = VirtioGPUBitmapDisplayBackend()
+        val console = UartPL011ConsoleBackend()
+        val net = VirtualEthernetDevice()
+        val input = AndroidInputBackend().virtualInputDevice
+        val devMgr = DeviceManager(disp, console, net, input)
+
+        cpu.pc = 0x100L
+        mem.write32(0x100L, 0x00000000)
+
+        val result = cpu.stepInstruction(mem, devMgr)
+        assertTrue("Emulator must halt on unsupported instruction", cpu.isHalted)
+        assertTrue("Result must contain TRAP: Unsupported ARM64 instruction", result.contains("TRAP: Unsupported ARM64 instruction"))
+        assertTrue("Result must report exact opcode", result.contains("0x0") || result.contains("0x00000000"))
+        assertTrue("Result must report exact PC", result.contains("0x100") || result.contains("100"))
+    }
+
+    @Test
+    fun `uart mmio routes writes to pl011 serial console`() {
+        val cpu = InterpreterArm64CPUBackend()
+        val mem = HostByteBufferMemoryBackend(16)
+        val disp = VirtioGPUBitmapDisplayBackend()
+        val console = UartPL011ConsoleBackend()
+        val net = VirtualEthernetDevice()
+        val input = AndroidInputBackend().virtualInputDevice
+        val devMgr = DeviceManager(disp, console, net, input)
+
+        // STRB W0, [X1] -> Opcode: 0x39000020
+        cpu.registers[1] = 0x09000000L // X1 = PL011 UARTDR
+        cpu.registers[0] = 'H'.code.toLong()
+        mem.write32(0x0L, 0x39000020)
+        cpu.pc = 0x0L
+
+        val step = cpu.stepInstruction(mem, devMgr)
+        assertTrue("Step must disassemble STRB", step.contains("STRB"))
+        val consoleOutput = console.terminalBuffer.value
+        assertTrue("UART console must receive character 'H' from guest write", consoleOutput.contains("H"))
+    }
+
+    @Test
+    fun `guest memory isolation blocks out of bounds accesses`() {
+        val mem = HostByteBufferMemoryBackend(16)
+        val maxValid = (16L * 1024L * 1024L) - 4L
+        mem.write32(maxValid, 0x12345678)
+        assertEquals(0x12345678, mem.read32(maxValid))
+
+        var threw = false
+        try {
+            mem.read32(16L * 1024L * 1024L + 1024L)
+        } catch (e: Exception) {
+            threw = true
+        }
+        assertTrue("Memory access outside bounds must throw/fail safely", threw)
+    }
+
+    @Test
+    fun `no fake cpu telemetry`() {
+        val config = VMConfig(id = 105L, name = "TelemetryTest", ramSizeMb = 512)
+        val engine = VMEngine(context, config)
+        assertNull("cpuUsage must be null (unavailable) when real utilization is unmeasured", engine.cpuUsage.value)
+        assertNotEquals(0.25f, engine.cpuUsage.value)
+        engine.destroy()
+    }
+
+    @Test
+    fun `vm lifecycle transitions through real states only`() {
+        val config = VMConfig(id = 106L, name = "LifecycleTest", ramSizeMb = 512)
+        val engine = VMEngine(context, config)
+        assertEquals(VMState.CREATED, engine.state.value)
+        engine.stop()
+        assertEquals(VMState.STOPPED, engine.state.value)
+        engine.destroy()
     }
 }

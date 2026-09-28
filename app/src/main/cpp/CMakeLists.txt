@@ -10,6 +10,7 @@ add_library(
     native_disk.cpp
     native_input.cpp
     native_devices.cpp
+    native_gic.cpp
     native_cpu_arm64.cpp
     native_cpu_kvm.cpp
     native_cpu_factory.cpp

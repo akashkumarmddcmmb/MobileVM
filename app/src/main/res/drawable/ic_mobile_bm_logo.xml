@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="120"
+    android:viewportHeight="120">
+
+    <!-- Background Badge -->
+    <path
+        android:pathData="M60,6 L108,34 L108,86 L60,114 L12,86 L12,34 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="12"
+                android:startY="6"
+                android:endX="108"
+                android:endY="114"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#0F172A" />
+                <item android:offset="0.5" android:color="#1E293B" />
+                <item android:offset="1.0" android:color="#0F172A" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Outer Tech Cyan Border -->
+    <path
+        android:pathData="M60,6 L108,34 L108,86 L60,114 L12,86 L12,34 Z"
+        android:strokeWidth="2.5"
+        android:strokeColor="#00E5FF"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
+
+    <!-- Upper Virtualized Stack Layer -->
+    <path
+        android:pathData="M60,34 L82,46 L60,58 L38,46 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="38"
+                android:startY="34"
+                android:endX="82"
+                android:endY="58"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#00E5FF" />
+                <item android:offset="1.0" android:color="#3B82F6" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Middle Hypervisor Virtual Bus Layer -->
+    <path
+        android:pathData="M60,49 L82,61 L60,73 L38,61 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="38"
+                android:startY="49"
+                android:endX="82"
+                android:endY="73"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#38BDF8" />
+                <item android:offset="1.0" android:color="#6366F1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Lower Bare-Metal Hardware Plane -->
+    <path
+        android:pathData="M60,64 L82,76 L60,88 L38,76 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="38"
+                android:startY="64"
+                android:endX="82"
+                android:endY="88"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#6366F1" />
+                <item android:offset="1.0" android:color="#4F46E5" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Central Microprocessor Core Dot -->
+    <path
+        android:pathData="M60,46m-3.5,0a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0"
+        android:fillColor="#FFFFFF" />
+
+    <!-- Vertical Interconnect Bus Pins -->
+    <path
+        android:pathData="M48,51 L48,79 M72,51 L72,79"
+        android:strokeWidth="1.8"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round" />
+</vector>

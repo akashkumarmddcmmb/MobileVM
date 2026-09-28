@@ -1,0 +1,102 @@
+THIRD-PARTY SOFTWARE LICENSES AND NOTICES
+================================================================================
+MOBILEVM APPLICATION SUITE (Android)
+
+This document contains information regarding third-party open-source libraries
+and components incorporated into or used by the MobileVM application.
+Each component is subject to its own license terms as specified below.
+MobileVM respects all open-source authors and licenses.
+
+================================================================================
+TABLE OF THIRD-PARTY DEPENDENCIES
+================================================================================
+
+1. AndroidX Core KTX (androidx.core:core-ktx)
+   - Version: 1.15.0+
+   - License: Apache License, Version 2.0
+   - Copyright (c) 2018 The Android Open Source Project
+   - Redistribution: Permitted under Apache-2.0 terms.
+   - Compliance: Apache License copy preserved below.
+
+2. AndroidX Lifecycle & ViewModel Compose (androidx.lifecycle:lifecycle-*)
+   - Version: 2.8.7+
+   - License: Apache License, Version 2.0
+   - Copyright (c) 2017 The Android Open Source Project
+   - Redistribution: Permitted under Apache-2.0 terms.
+
+3. AndroidX Activity Compose (androidx.activity:activity-compose)
+   - Version: 1.9.3+
+   - License: Apache License, Version 2.0
+   - Copyright (c) 2020 The Android Open Source Project
+   - Redistribution: Permitted under Apache-2.0 terms.
+
+4. Jetpack Compose UI & Foundation (androidx.compose.ui, foundation, material3)
+   - Version: 2024.11.00+
+   - License: Apache License, Version 2.0
+   - Copyright (c) 2019-2024 The Android Open Source Project
+   - Redistribution: Permitted under Apache-2.0 terms.
+
+5. AndroidX Room Database & KSP Compiler (androidx.room:room-runtime, room-ktx)
+   - Version: 2.6.1+
+   - License: Apache License, Version 2.0
+   - Copyright (c) 2017 The Android Open Source Project
+   - Redistribution: Permitted under Apache-2.0 terms.
+
+6. Kotlin Standard Library & Coroutines (org.jetbrains.kotlinx:kotlinx-coroutines-*)
+   - Version: 1.9.0+ / 2.0.21+
+   - License: Apache License, Version 2.0
+   - Copyright (c) 2010-2024 JetBrains s.r.o. and Kotlin Programming Language contributors
+   - Redistribution: Permitted under Apache-2.0 terms.
+
+7. Coil Image Loader for Compose (io.coil-kt:coil-compose)
+   - Version: 2.7.0+
+   - License: Apache License, Version 2.0
+   - Copyright (c) 2023 Coil Contributors
+   - Redistribution: Permitted under Apache-2.0 terms.
+
+8. Robolectric & AndroidX Test (Unit Testing Only - Not in Release APK)
+   - License: MIT License / Apache License 2.0
+   - Redistribution: Developer test dependency only.
+
+9. Guest OS Images (External Runtime Artifacts - Not Linked in APK):
+   - Linux Kernel: GNU General Public License v2 (GPL-2.0).
+     Runs entirely as isolated guest kernel in virtual address space.
+     Source code available from upstream providers (kernel.org, kernel-ppa).
+   - Alpine Linux / Ubuntu Cloud Images:
+     Independent distributions subject to their respective distribution licenses.
+
+================================================================================
+APACHE LICENSE, VERSION 2.0 (TERMS AND CONDITIONS)
+================================================================================
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+================================================================================
+MIT LICENSE (FOR APPLICABLE PACKAGES)
+================================================================================
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

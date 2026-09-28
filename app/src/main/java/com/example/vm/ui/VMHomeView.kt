@@ -65,6 +65,7 @@ import com.example.vm.guest.kernel.GuestKernelManager
 import com.example.vm.guest.initramfs.GuestInitramfsDownloader
 import com.example.vm.guest.initramfs.GuestInitramfsManager
 import com.example.vm.guest.ubuntu.UbuntuGuestManager
+import com.example.vm.nativebridge.NativeVMBinding
 import com.example.vm.input.TouchAction
 import com.example.vm.input.InputBackend
 import com.example.vm.input.VirtualInputDevice
@@ -87,6 +88,15 @@ fun VMHomeView(
     var showCreateDialog by remember { mutableStateOf(false) }
     var editingConfig by remember { mutableStateOf<VMConfig?>(null) }
     var inspectingDiskConfig by remember { mutableStateOf<VMConfig?>(null) }
+    var showLicenseScreen by remember { mutableStateOf(false) }
+
+    if (showLicenseScreen) {
+        LicenseAndProtectionScreen(
+            onDismiss = { showLicenseScreen = false },
+            modifier = modifier
+        )
+        return
+    }
 
     val vmList by viewModel.vmConfigurations.collectAsStateWithLifecycle()
     val activeVM by viewModel.activeVM.collectAsStateWithLifecycle()
@@ -110,11 +120,10 @@ fun VMHomeView(
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Memory,
-                            contentDescription = "MobileVM Logo",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(28.dp)
+                        Image(
+                            painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.ic_mobilevm_logo),
+                            contentDescription = "MobileVM Official Logo",
+                            modifier = Modifier.size(40.dp)
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
@@ -139,6 +148,17 @@ fun VMHomeView(
                 ),
                 actions = {
                     IconButton(
+                        onClick = { showLicenseScreen = true },
+                        modifier = Modifier.testTag("action_license_protection")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Gavel,
+                            contentDescription = "Licenses & Anti-Piracy Protection",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    IconButton(
                         onClick = { selectedTab = 3 },
                         modifier = Modifier.testTag("action_diagnostics")
                     ) {
@@ -149,10 +169,10 @@ fun VMHomeView(
                         )
                     }
 
-                    if (activeVMState == VMState.RUNNING || activeVMState == VMState.PAUSED) {
+                    if (activeVMState == VMState.RUNNING || activeVMState == VMState.STARTING) {
                         Surface(
                             shape = RoundedCornerShape(20.dp),
-                            color = if (activeVMState == VMState.RUNNING) Color(0x2200E676) else Color(0x22FFB300),
+                            color = if (activeVMState == VMState.RUNNING) Color(0x2200E676) else Color(0x2200E5FF),
                             modifier = Modifier.padding(end = 12.dp)
                         ) {
                             Row(
@@ -163,14 +183,14 @@ fun VMHomeView(
                                     modifier = Modifier
                                         .size(8.dp)
                                         .clip(RoundedCornerShape(4.dp))
-                                        .background(if (activeVMState == VMState.RUNNING) Color(0xFF00E676) else Color(0xFFFFB300))
+                                        .background(if (activeVMState == VMState.RUNNING) Color(0xFF00E676) else Color(0xFF00E5FF))
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = if (activeVMState == VMState.RUNNING) "ACTIVE" else "PAUSED",
+                                    text = if (activeVMState == VMState.RUNNING) "RUNNING" else "STARTING",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (activeVMState == VMState.RUNNING) Color(0xFF00E676) else Color(0xFFFFB300),
+                                    color = if (activeVMState == VMState.RUNNING) Color(0xFF00E676) else Color(0xFF00E5FF),
                                     fontFamily = FontFamily.Monospace
                                 )
                             }
@@ -427,7 +447,7 @@ fun DashboardTab(
 
 @Composable
 fun TelemetryBanner(activeVM: VMEngine?, hostArch: HostArchitecture) {
-    val cpuVal = activeVM?.cpuUsage?.collectAsStateWithLifecycle()?.value ?: 0f
+    val cpuVal = activeVM?.cpuUsage?.collectAsStateWithLifecycle()?.value
     val ramVal = activeVM?.ramUsage?.collectAsStateWithLifecycle()?.value ?: 0f
     val state = activeVM?.state?.collectAsStateWithLifecycle()?.value ?: VMState.STOPPED
 
@@ -490,19 +510,17 @@ fun TelemetryBanner(activeVM: VMEngine?, hostArch: HostArchitecture) {
                 }
             }
 
-            if (activeVM != null && state == VMState.RUNNING) {
-                val isHwAcc = activeVM.isActuallyHardwareAccelerated
-                Spacer(modifier = Modifier.height(10.dp))
-                Surface(
-                    color = if (isHwAcc) Color(0x2200E676) else Color(0x22FFA000),
-                    shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(1.dp, if (isHwAcc) Color(0x5500E676) else Color(0x55FFA000)),
-                    modifier = Modifier.fillMaxWidth().testTag("active_vm_accel_banner")
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+            val isHwAcc = activeVM?.isActuallyHardwareAccelerated ?: false
+            val isKvmAvail = if (NativeVMBinding.isLoaded()) NativeVMBinding.nativeIsKvmSupported() else false
+            Spacer(modifier = Modifier.height(10.dp))
+            Surface(
+                color = if (isHwAcc) Color(0x2200E676) else Color(0x22FFA000),
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, if (isHwAcc) Color(0x5500E676) else Color(0x55FFA000)),
+                modifier = Modifier.fillMaxWidth().testTag("active_vm_accel_banner")
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             imageVector = if (isHwAcc) Icons.Default.FlashOn else Icons.Default.Info,
                             contentDescription = "Backend Icon",
@@ -511,13 +529,15 @@ fun TelemetryBanner(activeVM: VMEngine?, hostArch: HostArchitecture) {
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (isHwAcc) {
-                                "⚡ Hardware Virtualization Active (ARM64 KVM/pKVM hypervisor)."
-                            } else if (activeVM.isFallbackEmulation) {
-                                "ℹ️ Emulation Fallback Active (KVM unexposed). Operating with supported ARM64 software emulation backend."
-                            } else {
-                                "ℹ️ Supported ARM64 Software Emulation Core Active (Native C++ engine)."
-                            },
+                            text = if (isKvmAvail && isHwAcc) "KVM: AVAILABLE" else "KVM: NOT AVAILABLE",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isKvmAvail && isHwAcc) Color(0xFF00E676) else Color(0xFFFFB300),
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = if (isHwAcc) "Backend: ARM64 KVM Hardware Virtualization" else "Backend: ARM64 Software Emulation",
                             fontSize = 11.sp,
                             color = Color.White,
                             fontFamily = FontFamily.Monospace
@@ -538,11 +558,17 @@ fun TelemetryBanner(activeVM: VMEngine?, hostArch: HostArchitecture) {
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("vCPU Load", fontSize = 12.sp, color = Color.Gray, fontFamily = FontFamily.Monospace)
-                        Text("${(cpuVal * 100).toInt()}%", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        Text(
+                            text = if (cpuVal == null) "CPU usage: unavailable" else "${(cpuVal * 100).toInt()}%",
+                            fontSize = 11.sp,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
                     }
                     Spacer(modifier = Modifier.height(6.dp))
                     TelemetryWaveform(
-                        usageValue = cpuVal,
+                        usageValue = cpuVal ?: 0f,
                         lineColor = Color(0xFF00E5FF),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -630,9 +656,11 @@ fun VMCard(
     val stateColor by animateColorAsState(
         targetValue = when (state) {
             VMState.RUNNING -> Color(0xFF00E676)
-            VMState.PAUSED -> Color(0xFFFFB300)
-            VMState.BOOTING -> Color(0xFF00E5FF)
-            VMState.READY -> Color(0xFF81D4FA)
+            VMState.STARTING -> Color(0xFF00E5FF)
+            VMState.CONFIGURED -> Color(0xFF81D4FA)
+            VMState.CREATED -> Color(0xFF81D4FA)
+            VMState.PAUSED -> Color(0xFFFFD54F)
+            VMState.STOPPING -> Color(0xFFFFB300)
             VMState.NOT_VERIFIED -> Color(0xFFFF9100)
             VMState.STOPPED -> Color.Gray
             VMState.ERROR -> Color(0xFFFF5252)
@@ -909,17 +937,17 @@ fun VMCard(
                         }
                     } else {
                         when (state) {
-                            VMState.BOOTING -> {
+                            VMState.STARTING -> {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(24.dp),
                                     strokeWidth = 2.dp,
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             }
+                            VMState.STOPPING -> {
+                                Text("Stopping...", color = Color.LightGray, fontSize = 12.sp)
+                            }
                             VMState.RUNNING -> {
-                                IconButton(onClick = onPause) {
-                                    Icon(Icons.Default.Pause, contentDescription = "Pause", tint = Color(0xFFFFB300))
-                                }
                                 IconButton(onClick = onReset) {
                                     Icon(Icons.Default.Refresh, contentDescription = "Reset", tint = Color.White)
                                 }
@@ -932,22 +960,9 @@ fun VMCard(
                                     Text("Halt", color = Color.White, fontWeight = FontWeight.Bold)
                                 }
                             }
-                            VMState.PAUSED -> {
-                                IconButton(onClick = onResume) {
-                                    Icon(Icons.Default.PlayArrow, contentDescription = "Resume", tint = Color(0xFF00E676))
-                                }
-                                Button(
-                                    onClick = onStop,
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935))
-                                ) {
-                                    Icon(Icons.Default.PowerSettingsNew, contentDescription = "Shutdown", tint = Color.White)
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Halt", color = Color.White, fontWeight = FontWeight.Bold)
-                                }
-                            }
                             else -> {
                                 Button(onClick = onStart) {
-                                    Text(if (state == VMState.READY) "Boot" else "Reboot")
+                                    Text(if (state == VMState.CONFIGURED || state == VMState.CREATED) "Boot" else "Reboot")
                                 }
                             }
                         }
@@ -1120,7 +1135,7 @@ fun ConsoleTab(viewModel: VMViewModel, engine: VMEngine) {
         val inputEventsCount by engine.inputBackend.virtualInputDevice.eventsDispatched.collectAsStateWithLifecycle()
         val displayStatus by engine.displayDevice.renderStatus.collectAsStateWithLifecycle()
 
-        if (state == VMState.RUNNING || state == VMState.BOOTING || state == VMState.PAUSED) {
+        if (state == VMState.RUNNING || state == VMState.STARTING) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()

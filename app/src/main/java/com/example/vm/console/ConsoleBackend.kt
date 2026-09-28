@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.asStateFlow
 
 interface ConsoleBackend : VirtualDevice {
     val history: StateFlow<List<String>>
+    val terminalBuffer: StateFlow<String>
     val isConnected: StateFlow<Boolean>
 
     fun writeTxBytes(bytes: ByteArray)
@@ -33,6 +34,11 @@ class UartPL011ConsoleBackend : ConsoleBackend {
         )
     )
     override val history: StateFlow<List<String>> = _history.asStateFlow()
+
+    private val _terminalBuffer = MutableStateFlow(
+        "=== MobileVM Serial Console (ttyAMA0 @ 115200 baud) ===\nConnecting to guest virtual UART subsystem at 0x09000000...\n"
+    )
+    override val terminalBuffer: StateFlow<String> = _terminalBuffer.asStateFlow()
 
     private val _isConnected = MutableStateFlow(true)
     override val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
@@ -114,6 +120,7 @@ class UartPL011ConsoleBackend : ConsoleBackend {
             list.removeAt(0)
         }
         _history.value = list
+        _terminalBuffer.value = list.joinToString("\n")
         currentLine.clear()
     }
 
@@ -125,6 +132,7 @@ class UartPL011ConsoleBackend : ConsoleBackend {
             list[list.size - 1] = currentLine.toString()
         }
         _history.value = list
+        _terminalBuffer.value = list.joinToString("\n")
     }
 
     override fun writeTxChar(char: Char) {
@@ -167,6 +175,7 @@ class UartPL011ConsoleBackend : ConsoleBackend {
     override fun clear() {
         synchronized(this) {
             _history.value = listOf("root@mobilevm:~# ")
+            _terminalBuffer.value = "root@mobilevm:~# "
             currentLine.clear()
         }
     }
@@ -183,6 +192,7 @@ class UartPL011ConsoleBackend : ConsoleBackend {
             val list = _history.value.toMutableList()
             list.add("\n[Guest OS halted / Serial connection terminated]")
             _history.value = list
+            _terminalBuffer.value = list.joinToString("\n")
         }
     }
 
@@ -192,6 +202,7 @@ class UartPL011ConsoleBackend : ConsoleBackend {
             val list = _history.value.toMutableList()
             list.add("[Reconnected to ttyAMA0 serial console]")
             _history.value = list
+            _terminalBuffer.value = list.joinToString("\n")
             sendRawByte('\n'.code.toByte())
         }
     }

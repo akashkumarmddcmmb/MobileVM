@@ -79,10 +79,10 @@
 #define KVM_REG_SIZE_U64          0x0030000000000000ULL
 #define KVM_REG_ARM_CORE          0x0010000000000000ULL
 
-#define ARM64_CORE_REG(name)      (KVM_REG_ARM64 | KVM_REG_SIZE_U64 | KVM_REG_ARM_CORE | (name))
-#define KVM_REG_ARM_X0            ARM64_CORE_REG(0)
-#define KVM_REG_ARM_SP            ARM64_CORE_REG(31)
-#define KVM_REG_ARM_PC            ARM64_CORE_REG(32)
+#define ARM64_CORE_REG(offset_u32) (KVM_REG_ARM64 | KVM_REG_SIZE_U64 | KVM_REG_ARM_CORE | (offset_u32))
+#define KVM_REG_ARM_X(i)          ARM64_CORE_REG((i) * 2)
+#define KVM_REG_ARM_SP            ARM64_CORE_REG(62)
+#define KVM_REG_ARM_PC            ARM64_CORE_REG(64)
 
 struct kvm_userspace_memory_region {
     uint32_t slot;
@@ -221,7 +221,7 @@ void NativeCPUKVM::setRegister(uint32_t index, uint64_t value) {
         registers[index] = value;
         if (vcpuFd >= 0) {
             struct kvm_one_reg reg;
-            reg.id = ARM64_CORE_REG(index);
+            reg.id = KVM_REG_ARM_X(index);
             reg.addr = reinterpret_cast<uint64_t>(&registers[index]);
             ioctl(vcpuFd, KVM_SET_ONE_REG, &reg);
         }
@@ -253,7 +253,7 @@ bool NativeCPUKVM::syncRegistersToKvm() {
 
     struct kvm_one_reg reg;
     for (uint32_t i = 0; i < 31; i++) {
-        reg.id = ARM64_CORE_REG(i);
+        reg.id = KVM_REG_ARM_X(i);
         reg.addr = reinterpret_cast<uint64_t>(&registers[i]);
         ioctl(vcpuFd, KVM_SET_ONE_REG, &reg);
     }
@@ -274,7 +274,7 @@ bool NativeCPUKVM::syncRegistersFromKvm() {
 
     struct kvm_one_reg reg;
     for (uint32_t i = 0; i < 31; i++) {
-        reg.id = ARM64_CORE_REG(i);
+        reg.id = KVM_REG_ARM_X(i);
         reg.addr = reinterpret_cast<uint64_t>(&registers[i]);
         ioctl(vcpuFd, KVM_GET_ONE_REG, &reg);
     }
@@ -330,10 +330,11 @@ bool NativeCPUKVM::initKvmVcpu(NativeMemory& memory) {
         vcpuFd = ioctl(vmFd, KVM_CREATE_VCPU, 0);
         if (vcpuFd < 0) return false;
 
-        // Initialize ARM64 vCPU preferred target
+        // Initialize ARM64 vCPU preferred target with PSCI 0.2 feature enabled
         struct kvm_vcpu_init init;
         std::memset(&init, 0, sizeof(init));
         if (ioctl(vmFd, KVM_ARM_PREFERRED_TARGET, &init) >= 0) {
+            init.features[0] |= (1u << 0); // KVM_ARM_VCPU_PSCI_0_2
             ioctl(vcpuFd, KVM_ARM_VCPU_INIT, &init);
         }
 

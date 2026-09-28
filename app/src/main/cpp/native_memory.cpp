@@ -57,7 +57,10 @@ NativeMemory::~NativeMemory() {
 
 bool NativeMemory::isValidAddress(uint64_t address, size_t size) const {
     if (!ramBuffer) return false;
-    return (address + size <= ramSizeBytes);
+    if (address > ramSizeBytes) return false;
+    if (size > ramSizeBytes) return false;
+    if (address + size > ramSizeBytes) return false;
+    return true;
 }
 
 uint8_t NativeMemory::read8(uint64_t address) const {

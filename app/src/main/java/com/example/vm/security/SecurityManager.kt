@@ -18,7 +18,10 @@ data class SecurityAuditReport(
     val isHostStorageProtected: Boolean = true,
     val hostSystemPartitionsReadOnly: Boolean = true,
     val sandboxedDiskDirectory: String,
-    val securityLevel: String = "High (Android SELinux Standard Unprivileged App)"
+    val securityLevel: String = "High (Android SELinux Standard Unprivileged App)",
+    val isSignatureVerified: Boolean = true,
+    val copyrightEnforced: Boolean = true,
+    val protectionReport: ProjectProtectionReport? = null
 )
 
 object SecurityManager {
@@ -28,6 +31,8 @@ object SecurityManager {
             disksDir.mkdirs()
         }
 
+        val protection = ProjectProtectionManager.performProtectionAudit(context)
+
         return SecurityAuditReport(
             isRootRequired = false,
             isAppSandboxed = true,
@@ -35,7 +40,10 @@ object SecurityManager {
             isHostStorageProtected = true,
             hostSystemPartitionsReadOnly = true,
             sandboxedDiskDirectory = disksDir.absolutePath,
-            securityLevel = "Enforced (Scoped VM Storage, No Root, Pure Userland)"
+            securityLevel = "Enforced (Scoped VM Storage, No Root, Anti-Cloning Active)",
+            isSignatureVerified = protection.isSignatureVerified,
+            copyrightEnforced = protection.copyrightEnforced,
+            protectionReport = protection
         )
     }
 

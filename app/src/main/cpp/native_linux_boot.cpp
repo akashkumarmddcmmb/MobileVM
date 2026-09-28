@@ -64,23 +64,101 @@ bool NativeLinuxBootLoader::loadCustomKernel(
     fstat(fd, &st);
     size_t fileSize = static_cast<size_t>(st.st_size);
 
-    uint64_t textOffset = (header.magic == 0x644d5241) ? header.text_offset : 0x00080000ULL;
-    if (textOffset == 0) textOffset = 0x00080000ULL;
+    uint64_t entryPoint = 0x00080000ULL;
+    bool loadSuccess = false;
 
-    if (!memory.isValidAddress(textOffset, fileSize)) {
-        outLog += "[KERNEL ERROR] Insufficient guest RAM to load kernel (" + std::to_string(fileSize / (1024*1024)) + " MB).\n";
-        close(fd);
-        return false;
+    const uint8_t* rawHeader = reinterpret_cast<const uint8_t*>(&header);
+    bool isElf64 = (rawHeader[0] == 0x7F && rawHeader[1] == 'E' && rawHeader[2] == 'L' && rawHeader[3] == 'F' && rawHeader[4] == 2);
+
+    if (isElf64) {
+        // Parse ELF64 (vmlinux) header and program headers
+        struct Elf64Header {
+            uint8_t e_ident[16];
+            uint16_t e_type;
+            uint16_t e_machine;
+            uint32_t e_version;
+            uint64_t e_entry;
+            uint64_t e_phoff;
+            uint64_t e_shoff;
+            uint32_t e_flags;
+            uint16_t e_ehsize;
+            uint16_t e_phentsize;
+            uint16_t e_phnum;
+            uint16_t e_shentsize;
+            uint16_t e_shnum;
+            uint16_t e_shstrndx;
+        } __attribute__((packed)) elfHdr;
+
+        lseek(fd, 0, SEEK_SET);
+        if (read(fd, &elfHdr, sizeof(elfHdr)) == sizeof(elfHdr)) {
+            entryPoint = elfHdr.e_entry & 0x0FFFFFFFULL;
+            if (entryPoint == 0) entryPoint = 0x00080000ULL;
+
+            struct Elf64Phdr {
+                uint32_t p_type;
+                uint32_t p_flags;
+                uint64_t p_offset;
+                uint64_t p_vaddr;
+                uint64_t p_paddr;
+                uint64_t p_filesz;
+                uint64_t p_memsz;
+                uint64_t p_align;
+            } __attribute__((packed));
+
+            bool phdrLoaded = false;
+            if (elfHdr.e_phnum > 0 && elfHdr.e_phentsize >= sizeof(Elf64Phdr)) {
+                lseek(fd, elfHdr.e_phoff, SEEK_SET);
+                for (uint16_t i = 0; i < elfHdr.e_phnum; i++) {
+                    Elf64Phdr phdr;
+                    if (read(fd, &phdr, sizeof(phdr)) != sizeof(phdr)) break;
+                    if (phdr.p_type == 1 /* PT_LOAD */ && phdr.p_filesz > 0) {
+                        uint64_t physTarget = phdr.p_paddr != 0 ? phdr.p_paddr : (phdr.p_vaddr & 0x0FFFFFFFULL);
+                        if (physTarget == 0) physTarget = 0x00080000ULL;
+
+                        if (memory.isValidAddress(physTarget, phdr.p_filesz)) {
+                            off_t savedPos = lseek(fd, 0, SEEK_CUR);
+                            lseek(fd, phdr.p_offset, SEEK_SET);
+                            read(fd, memory.getRawBuffer() + physTarget, phdr.p_filesz);
+                            lseek(fd, savedPos, SEEK_SET);
+                            phdrLoaded = true;
+                        }
+                    }
+                }
+            }
+
+            if (phdrLoaded) {
+                loadSuccess = true;
+                outLog += "[BOOT] ELF64 Kernel (vmlinux) loaded successfully via Program Headers. Entry: 0x" +
+                          std::to_string(entryPoint) + "\n";
+            }
+        }
     }
 
-    uint8_t* dest = memory.getRawBuffer() + textOffset;
-    ssize_t readLen = read(fd, dest, fileSize);
+    if (!loadSuccess) {
+        // Fallback or Raw ARM64 Image Loading
+        uint64_t textOffset = (header.magic == 0x644d5241) ? header.text_offset : 0x00080000ULL;
+        if (textOffset == 0) textOffset = 0x00080000ULL;
+        entryPoint = textOffset;
+
+        if (!memory.isValidAddress(textOffset, fileSize)) {
+            outLog += "[KERNEL ERROR] Insufficient guest RAM to load kernel (" + std::to_string(fileSize / (1024*1024)) + " MB).\n";
+            close(fd);
+            return false;
+        }
+
+        lseek(fd, 0, SEEK_SET);
+        uint8_t* dest = memory.getRawBuffer() + textOffset;
+        ssize_t readLen = read(fd, dest, fileSize);
+        if (readLen != static_cast<ssize_t>(fileSize)) {
+            outLog += "[KERNEL ERROR] Incomplete read of kernel image.\n";
+            close(fd);
+            return false;
+        }
+        outLog += "[BOOT] Raw ARM64 Kernel Image loaded at 0x" + std::to_string(textOffset) +
+                  " (Size: " + std::to_string(fileSize / 1024) + " KB, Entry: 0x" + std::to_string(textOffset) + ")\n";
+    }
+
     close(fd);
-
-    if (readLen != static_cast<ssize_t>(fileSize)) {
-        outLog += "[KERNEL ERROR] Incomplete read of kernel image.\n";
-        return false;
-    }
 
     // Load Initramfs if provided
     uint64_t initrdStart = 0;
@@ -116,11 +194,11 @@ bool NativeLinuxBootLoader::loadCustomKernel(
     cpu.setRegister(1, 0);
     cpu.setRegister(2, 0);
     cpu.setRegister(3, 0);
-    cpu.setPC(textOffset);
+    cpu.setPC(entryPoint);
     cpu.setSP(0x000FFFF0ULL);
 
-    outLog += "[BOOT] ARM64 Linux Kernel loaded at 0x" + std::to_string(textOffset) +
-              " (Size: " + std::to_string(fileSize / 1024) + " KB, Entry: 0x" + std::to_string(textOffset) + ")\n" +
+    outLog += "[BOOT] ARM64 Linux Kernel loaded at 0x" + std::to_string(entryPoint) +
+              " (Size: " + std::to_string(fileSize / 1024) + " KB, Entry: 0x" + std::to_string(entryPoint) + ")\n" +
               "[BOOT] FDT Device Tree supplied at X0 = 0x00040000\n";
     return true;
 }
@@ -232,8 +310,14 @@ uint64_t NativeLinuxBootLoader::generateDeviceTreeBlob(
     addPropString("compatible", "linux,dummy-virt");
 
     beginNode("chosen");
-    std::string cmd = config.cmdline.empty() ?
-        "console=ttyAMA0,115200 root=/dev/vda1 rw earlycon=pl011,0x09000000 init=/init" : config.cmdline;
+    std::string cmd = config.cmdline;
+    if (cmd.empty()) {
+        if (initrdSize > 0) {
+            cmd = "console=ttyAMA0,115200 earlycon=pl011,0x09000000 rdinit=/init";
+        } else {
+            cmd = "console=ttyAMA0,115200 root=/dev/vda1 rw earlycon=pl011,0x09000000 init=/init";
+        }
+    }
     addPropString("bootargs", cmd);
     addPropString("stdout-path", "/pl011@9000000");
     if (initrdSize > 0) {
@@ -262,6 +346,28 @@ uint64_t NativeLinuxBootLoader::generateDeviceTreeBlob(
     uint64_t memReg[2] = { toBigEndian64(0x0ULL), toBigEndian64(config.ramSizeBytes) };
     addProp("reg", memReg, 16);
     endNode(); // /memory@0
+
+    beginNode("intc@8000000");
+    addPropString("compatible", "arm,cortex-a15-gic");
+    addPropU32("#interrupt-cells", 3);
+    addProp("interrupt-controller", nullptr, 0);
+    uint64_t gicReg[4] = {
+        toBigEndian64(0x08000000ULL), toBigEndian64(0x1000ULL),
+        toBigEndian64(0x08010000ULL), toBigEndian64(0x1000ULL)
+    };
+    addProp("reg", gicReg, 32);
+    endNode(); // /intc@8000000
+
+    beginNode("timer");
+    addPropString("compatible", "arm,armv8-timer");
+    uint32_t timerInts[12] = {
+        toBigEndian32(1), toBigEndian32(13), toBigEndian32(0xf08),
+        toBigEndian32(1), toBigEndian32(14), toBigEndian32(0xf08),
+        toBigEndian32(1), toBigEndian32(11), toBigEndian32(0xf08),
+        toBigEndian32(1), toBigEndian32(10), toBigEndian32(0xf08)
+    };
+    addProp("interrupts", timerInts, 48);
+    endNode(); // /timer
 
     beginNode("pl011@9000000");
     const char pl011Comp[] = "arm,pl011\0arm,primecell";

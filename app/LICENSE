@@ -1,0 +1,127 @@
+PROPRIETARY AND CONFIDENTIAL SOFTWARE LICENSE AGREEMENT
+MOBILEVM APPLICATION SUITE
+
+Copyright (c) 2026 Akash Kumar / MobileVM Authors.
+All Rights Reserved.
+
+IMPORTANT - READ CAREFULLY:
+This Proprietary Software License Agreement ("Agreement") is a legally binding
+contract between you (either an individual or a single legal entity, hereinafter
+referred to as "Licensee" or "User") and the Copyright Owner ("Licensor",
+Akash Kumar / MobileVM Authors) for the software product "MobileVM" (including
+associated Android APK binaries, virtual machine emulation engines, firmware DTB
+generators, source code, documentation, graphics, and user interfaces, collectively
+referred to as the "Software").
+
+BY DOWNLOADING, INSTALLING, COPYING, OR OTHERWISE USING THIS SOFTWARE, YOU AGREE
+TO BE BOUND BY THE TERMS OF THIS AGREEMENT. IF YOU DO NOT AGREE TO THE TERMS OF
+THIS AGREEMENT, DO NOT INSTALL, COPY, OR USE THE SOFTWARE.
+
+================================================================================
+1. GRANT OF LIMITED, NON-EXCLUSIVE LICENSE
+================================================================================
+Subject to the terms and conditions of this Agreement and payment of applicable
+license fees (if any), Licensor grants Licensee a limited, personal, revocable,
+non-exclusive, non-transferable, and non-sublicensable license to install and
+execute the Software on authorized Android devices solely for Licensee's personal
+or internal evaluation use in accordance with the assigned license tier (Free, Pro,
+Premium, or Enterprise).
+
+Nothing in this Agreement shall be construed as transferring any ownership, title,
+patent, copyright, trade secret, or other intellectual property rights in the
+Software to Licensee or any third party. All rights not expressly granted herein
+are reserved exclusively by Licensor.
+
+================================================================================
+2. PROHIBITED USES AND RESTRICTIONS
+================================================================================
+Licensee shall NOT, directly or indirectly:
+(a) Copy, reproduce, redistribute, lease, rent, loan, sell, resell, sublicense,
+    publish, broadcast, or commercially exploit the Software, in whole or in part,
+    without express prior written consent from Licensor.
+(b) Modify, adapt, translate, alter, create derivative works of, or port the
+    Software or any of its internal virtualization algorithms.
+(c) Decompile, disassemble, reverse engineer, decrypt, deobfuscate, extract, or
+    otherwise attempt to derive the source code, structure, sequence, or algorithms
+    of the Software or any portion thereof, except and only to the extent permitted
+    by mandatory applicable law notwithstanding this limitation.
+(d) Circumvent, disable, bypass, tamper with, or defeat any copy protection,
+    digital rights management (DRM), cryptographic signature verification, package
+    identity checks, offline grace period timers, or license activation mechanisms.
+(e) Re-sign, repackage, clone, or publish modified APK binaries or distribute
+    unauthorized modified versions through third-party app stores or websites.
+(f) Share, publish, leak, generate, or distribute unauthorized license keys,
+    activation tokens, or authentication credentials.
+(g) Use the Software to build a competing mobile virtualization or emulator
+    product or service.
+
+================================================================================
+3. LICENSE ACTIVATION, DEVICE BINDING, AND SERVER VERIFICATION
+================================================================================
+(a) Unique License Keys: Certain tiers and features of the Software require a
+    unique License Key for activation. Each License Key is cryptographically
+    validated and tied to the application's package identity and device fingerprint.
+(b) Device Activation Limits: Each License Key is subject to a maximum device
+    activation quota maintained and enforced by Licensor's licensing servers.
+(c) Server-Side Validation: The Software periodically verifies license status,
+    entitlements, and revocation with Licensor's authoritative license servers
+    over secure HTTPS connections.
+(d) Offline Grace Period: The Software allows continued operation during temporary
+    offline periods for up to seven (7) days from the last successful server
+    validation. Following the expiration of the offline grace period, active
+    internet connectivity is required to re-validate entitlements. Tampering with
+    the system clock or monotonic timers will immediately invalidate the offline
+    grace token.
+(e) Revocation: Licensor reserves the right to immediately revoke, suspend, or
+    terminate any License Key found to be compromised, shared publicly, used on
+    excessive devices, or associated with fraudulent activities.
+
+================================================================================
+4. THIRD-PARTY AND OPEN-SOURCE COMPONENTS
+================================================================================
+(a) Independence of Open-Source Software: The Software may interact with, launch,
+    or download independent third-party open-source operating system images and
+    guest kernels (such as the Linux Kernel licensed under GNU GPLv2, Ubuntu
+    Cloud Images provided by Canonical Ltd., and Alpine Linux).
+(b) Preservation of Open-Source Licenses: Nothing in this proprietary Agreement
+    is intended to restrict, expand, or override the rights granted to Licensee
+    under the respective open-source licenses governing such external guest
+    components. All third-party copyrights, licenses, notices, and source code
+    availability terms are strictly preserved and accessible in the Software's
+    "Licenses & OS" registry.
+(c) No Viral Encumbrance: The proprietary emulator logic, user interface, and
+    application framework of MobileVM run in Android user-space and communicate
+    with guest operating systems solely across virtual hardware boundaries (MMIO,
+    UART, and virtual CPU instructions). No proprietary code is incorporated into
+    or statically linked with the GPL-licensed guest Linux kernel.
+
+================================================================================
+5. TERMINATION
+================================================================================
+This Agreement is effective until terminated. Your rights under this license
+terminate automatically without notice from Licensor if you fail to comply with
+any of the terms of this Agreement. Upon termination, you must cease all use of
+the Software and destroy all copies, full or partial, in your possession.
+
+================================================================================
+6. DISCLAIMER OF WARRANTIES AND LIMITATION OF LIABILITY
+================================================================================
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE SOFTWARE IS PROVIDED
+"AS IS" AND "AS AVAILABLE", WITH ALL FAULTS AND WITHOUT WARRANTY OF ANY KIND.
+LICENSOR HEREBY DISCLAIMS ALL WARRANTIES, EXPRESS, IMPLIED, OR STATUTORY,
+INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE, ACCURACY, TITLE, AND NON-INFRINGEMENT.
+
+UNDER NO CIRCUMSTANCES SHALL LICENSOR BE LIABLE FOR ANY INCIDENTAL, SPECIAL,
+INDIRECT, CONSEQUENTIAL, OR PUNITIVE DAMAGES WHATSOEVER (INCLUDING DAMAGES FOR
+LOSS OF PROFITS, LOSS OF DATA, CORRUPTION OF GUEST VIRTUAL DISKS, OR BUSINESS
+INTERRUPTION) ARISING OUT OF OR RELATED TO YOUR USE OF OR INABILITY TO USE THE
+SOFTWARE.
+
+================================================================================
+7. GOVERNING LAW AND SEVERABILITY
+================================================================================
+This Agreement shall be governed by and construed in accordance with the laws
+applicable to intellectual property and copyright protection, excluding conflict
+of law provisions. If any provision of this Agreement is held to be invalid or
+unenforceable, the remaining provisions shall remain in full force and effect.

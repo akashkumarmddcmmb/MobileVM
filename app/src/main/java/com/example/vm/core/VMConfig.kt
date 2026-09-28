@@ -30,4 +30,13 @@ data class VMConfig(
     fun getGuestArchName(): String {
         return getGuestArch().displayName
     }
+
+    fun determineEffectiveCmdline(): String {
+        if (kernelCmdline.isNotBlank()) return kernelCmdline
+        return if (diskImagePath.isEmpty() && initramfsPath.isNotEmpty()) {
+            "console=ttyAMA0,115200 earlycon=pl011,0x09000000 rdinit=/init"
+        } else {
+            "console=ttyAMA0,115200 root=/dev/vda1 rw init=/init earlycon=pl011,0x09000000"
+        }
+    }
 }

@@ -1,6 +1,6 @@
 {
   "name": "MobileVM",
-  "description": "General-purpose Virtual Machine (VM) manager and virtualization sandbox for Android.",
+  "description": "Professional Bare-Metal Virtual Machine hypervisor sandbox and proprietary virtualization engine for Android.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

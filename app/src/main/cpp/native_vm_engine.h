@@ -15,12 +15,14 @@
 
 enum class VMNativeState {
     CREATED = 0,
-    STARTING = 1,
-    RUNNING = 2,
-    PAUSED = 3,
-    STOPPING = 4,
-    STOPPED = 5,
-    ERROR = 6
+    CONFIGURED = 1,
+    STARTING = 2,
+    RUNNING = 3,
+    PAUSED = 4,
+    STOPPING = 5,
+    STOPPED = 6,
+    ERROR = 7,
+    NOT_VERIFIED = 8
 };
 
 class NativeVMEngine {

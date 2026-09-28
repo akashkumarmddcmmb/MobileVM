@@ -30,7 +30,7 @@ class VMInstance(
     val config: VMConfig,
     val onStateChanged: (VMState) -> Unit
 ) {
-    private val _state = MutableStateFlow(VMState.READY)
+    private val _state = MutableStateFlow(VMState.CREATED)
     val state: StateFlow<VMState> = _state.asStateFlow()
 
     var nativeHandle: Long = 0L
@@ -118,7 +118,10 @@ class VMInstance(
 
         deviceManager.onPowerAction = { powerCode ->
             when (powerCode) {
-                0x01 -> setVMState(VMState.PAUSED)
+                0x01 -> {
+                    cpu.isPaused = true
+                    setVMState(VMState.PAUSED)
+                }
                 0x02 -> {
                     consoleBackend.notifyVmShutdown()
                     setVMState(VMState.STOPPED)
@@ -145,14 +148,14 @@ class VMInstance(
                 setVMState(VMState.ERROR)
                 return false
             } else {
-                setVMState(VMState.READY)
+                setVMState(VMState.CONFIGURED)
                 return true
             }
         } else {
             memory.reset()
             cpu.reset()
             deviceManager.resetAll()
-            setVMState(VMState.READY)
+            setVMState(VMState.CONFIGURED)
 
             val binaryPayload = assembleBootloaderBinary()
             memory.loadBinary(0L, binaryPayload)
@@ -161,27 +164,31 @@ class VMInstance(
     }
 
     fun start(): Boolean {
-        if (_state.value != VMState.READY && _state.value != VMState.STOPPED) return false
+        if (_state.value != VMState.CONFIGURED && _state.value != VMState.STOPPED && _state.value != VMState.CREATED) return false
 
         if (nativeHandle != 0L) {
-            setVMState(VMState.BOOTING)
+            setVMState(VMState.STARTING)
             val started = NativeVMBinding.nativeStart(nativeHandle)
             if (!started) {
                 setVMState(VMState.ERROR)
                 return false
             }
-            setVMState(VMState.RUNNING)
 
             executionJob?.cancel()
             executionJob = instanceScope.launch {
-                while (_state.value == VMState.RUNNING) {
-                    NativeVMBinding.nativeStepCycles(nativeHandle, 500)
+                var firstCycles = false
+                while (_state.value == VMState.RUNNING || _state.value == VMState.STARTING) {
+                    val cycles = NativeVMBinding.nativeStepCycles(nativeHandle, 500)
+                    if (cycles > 0 && !firstCycles) {
+                        firstCycles = true
+                        setVMState(VMState.RUNNING)
+                    }
 
                     val nativeStateCode = NativeVMBinding.nativeGetState(nativeHandle)
                     val currentNativeState = mapNativeState(nativeStateCode)
                     if (currentNativeState != _state.value) {
                         setVMState(currentNativeState)
-                        if (currentNativeState.isTerminal() || currentNativeState == VMState.PAUSED) {
+                        if (currentNativeState.isTerminal()) {
                             break
                         }
                     }
@@ -205,24 +212,25 @@ class VMInstance(
             }
             return true
         } else {
-            setVMState(VMState.BOOTING)
+            setVMState(VMState.STARTING)
             cpu.isHalted = false
             cpu.isPaused = false
-            setVMState(VMState.RUNNING)
 
             executionJob?.cancel()
             executionJob = instanceScope.launch {
-                while (_state.value == VMState.RUNNING) {
+                var firstExecuted = false
+                while (_state.value == VMState.RUNNING || _state.value == VMState.STARTING) {
                     if (cpu.isHalted) {
                         setVMState(VMState.STOPPED)
                         break
                     }
-                    if (cpu.isPaused) {
-                        setVMState(VMState.PAUSED)
-                        break
-                    }
 
                     val stepDisassembly = cpu.stepInstruction(memory, deviceManager)
+                    if (!firstExecuted) {
+                        firstExecuted = true
+                        setVMState(VMState.RUNNING)
+                    }
+
                     if (stepDisassembly.startsWith("TRAP")) {
                         consoleBackend.writeTxChar('\n')
                         stepDisassembly.forEach { consoleBackend.writeTxChar(it) }
@@ -240,10 +248,9 @@ class VMInstance(
     }
 
     fun pause(): Boolean {
-        if (_state.value == VMState.RUNNING || _state.value == VMState.BOOTING) {
+        if (_state.value == VMState.RUNNING || _state.value == VMState.STARTING) {
             if (nativeHandle != 0L) {
-                val ok = NativeVMBinding.nativePause(nativeHandle)
-                if (!ok) return false
+                NativeVMBinding.nativePause(nativeHandle)
             } else {
                 cpu.isPaused = true
             }
@@ -262,17 +269,18 @@ class VMInstance(
                     return false
                 }
                 setVMState(VMState.RUNNING)
-                return start()
+                return true
             } else {
                 cpu.isPaused = false
                 setVMState(VMState.RUNNING)
-                return start()
+                return true
             }
         }
         return false
     }
 
     fun stop(): Boolean {
+        setVMState(VMState.STOPPING)
         if (nativeHandle != 0L) {
             NativeVMBinding.nativeStop(nativeHandle)
         } else {
@@ -313,12 +321,14 @@ class VMInstance(
 
     private fun mapNativeState(code: Int): VMState {
         return when (code) {
-            0 -> VMState.READY
-            1 -> VMState.BOOTING
-            2 -> VMState.RUNNING
-            3 -> VMState.PAUSED
-            4 -> VMState.STOPPED
-            5 -> VMState.STOPPED
+            0 -> VMState.CREATED
+            1 -> VMState.CONFIGURED
+            2 -> VMState.STARTING
+            3 -> VMState.RUNNING
+            4 -> VMState.PAUSED
+            5 -> VMState.STOPPING
+            6 -> VMState.STOPPED
+            8 -> VMState.NOT_VERIFIED
             else -> VMState.ERROR
         }
     }

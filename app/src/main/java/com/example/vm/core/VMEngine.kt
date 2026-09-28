@@ -52,14 +52,15 @@ class VMEngine(
 
     fun getActiveInstance(): VMInstance? = instance
 
-    private val _state = MutableStateFlow(VMState.READY)
+    private val _state = MutableStateFlow(VMState.CREATED)
     val state: StateFlow<VMState> = _state.asStateFlow()
 
     private val _lastError = MutableStateFlow<VMError?>(null)
     val lastError: StateFlow<VMError?> = _lastError.asStateFlow()
 
-    private val _cpuUsage = MutableStateFlow(0f)
-    val cpuUsage: StateFlow<Float> = _cpuUsage.asStateFlow()
+    // Real CPU utilization: null indicates unmeasured/unavailable (never fake)
+    private val _cpuUsage = MutableStateFlow<Float?>(null)
+    val cpuUsage: StateFlow<Float?> = _cpuUsage.asStateFlow()
 
     private val _ramUsage = MutableStateFlow(0f)
     val ramUsage: StateFlow<Float> = _ramUsage.asStateFlow()
@@ -179,6 +180,12 @@ class VMEngine(
                 _lastError.value = err
                 return err
             }
+            if (!initrdInfo.hasUsableInit) {
+                val err = VMError.initramfsMissingInit(config.initramfsPath)
+                _state.value = VMState.ERROR
+                _lastError.value = err
+                return err
+            }
         }
 
         // 5. Construct VMInstance
@@ -199,7 +206,7 @@ class VMEngine(
         inputBackend = vmInst.inputBackend
 
         // 6. Configure guest physical RAM, DTB, registers & load kernel
-        _state.value = VMState.BOOTING
+        _state.value = VMState.CONFIGURED
         val configured = vmInst.configure()
         if (!configured) {
             vmInst.destroy()
@@ -211,6 +218,7 @@ class VMEngine(
         }
 
         // 7. Start real CPU execution thread
+        _state.value = VMState.STARTING
         val started = vmInst.start()
         if (!started) {
             vmInst.destroy()
@@ -235,7 +243,7 @@ class VMEngine(
 
             while (true) {
                 val currentState = vm.state.value
-                if (currentState == VMState.RUNNING || currentState == VMState.BOOTING) {
+                if (currentState == VMState.RUNNING || currentState == VMState.STARTING) {
                     val regsMap = mutableMapOf<String, Long>()
                     vm.cpu.registers.forEachIndexed { index, value ->
                         regsMap["X$index"] = value
@@ -244,12 +252,11 @@ class VMEngine(
                     regsMap["SP"] = vm.cpu.sp
                     _cpuRegisters.value = regsMap
 
-                    _cpuUsage.value = if (vm.cpu.isHalted || vm.cpu.isPaused) 0f else 0f
+                    // Real CPU usage: reported as null (unavailable) rather than fake 0.25f
+                    _cpuUsage.value = null
                     _ramUsage.value = realRamFraction
-                } else if (currentState == VMState.PAUSED) {
-                    _cpuUsage.value = 0f
                 } else if (currentState.isTerminal()) {
-                    _cpuUsage.value = 0f
+                    _cpuUsage.value = null
                     _ramUsage.value = 0f
                     _cpuRegisters.value = emptyMap()
                     break
@@ -261,12 +268,13 @@ class VMEngine(
 
     fun stop(): String? {
         monitorJob?.cancel()
+        _state.value = VMState.STOPPING
         val vm = instance
         if (vm != null) {
             vm.stop()
         }
         _state.value = VMState.STOPPED
-        _cpuUsage.value = 0f
+        _cpuUsage.value = null
         _ramUsage.value = 0f
         _cpuRegisters.value = emptyMap()
         return null
@@ -277,7 +285,7 @@ class VMEngine(
         val ok = vm.pause()
         if (ok) {
             _state.value = VMState.PAUSED
-            _cpuUsage.value = 0f
+            _cpuUsage.value = null
             return null
         }
         return "Cannot pause VM in state ${_state.value}."

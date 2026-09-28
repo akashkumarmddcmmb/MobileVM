@@ -83,7 +83,8 @@ NativeDeviceManager::NativeDeviceManager()
       blkDmaAddr(0) {}
 
 bool NativeDeviceManager::isMMIOAddress(uint64_t address) const {
-    if (address == 0x08000000ULL) return true; // ACPI
+    if (gic.isGICAddress(address)) return true;
+    if (address == 0x08000000ULL) return true; // ACPI Power Port
     if (address >= 0x09000000ULL && address < 0x09001000ULL) return true; // PL011 UART
     if (address >= 0x0A000000ULL && address < 0x0A000200ULL) return true; // VirtIO Block
     if (address >= 0x0B000000ULL && address < 0x0B000030ULL) return true; // VirtIO Input
@@ -119,9 +120,12 @@ void NativeDeviceManager::processVirtioBlockQueue(NativeMemory* memory) {
     uint8_t* usedPtr = memory->getRawBuffer() + blkQueueDeviceAddr;
     uint16_t* usedIdxPtr = reinterpret_cast<uint16_t*>(usedPtr + 2);
 
+    bool processedAny = false;
+
     while (blkLastAvailIdx != availIdx) {
         uint16_t headIdx = *reinterpret_cast<const uint16_t*>(availPtr + 4 + 2 * (blkLastAvailIdx % blkQueueNum));
         blkLastAvailIdx++;
+        processedAny = true;
 
         uint16_t currIdx = headIdx;
         uint32_t totalWritten = 0;
@@ -158,8 +162,8 @@ void NativeDeviceManager::processVirtioBlockQueue(NativeMemory* memory) {
                         std::string err;
                         uint32_t sectorCount = desc->len / 512;
                         if (sectorCount > 0) {
-                            uint8_t* dst = memory->getRawBuffer() + desc->addr;
-                            if (disk.readSectors(reqHeader.sector, sectorCount, dst, err)) {
+                            uint8_t* memDst = memory->getRawBuffer() + desc->addr;
+                            if (disk.readSectors(reqHeader.sector, sectorCount, memDst, err)) {
                                 totalWritten += desc->len;
                             } else {
                                 blkReqStatus = 1;
@@ -169,13 +173,13 @@ void NativeDeviceManager::processVirtioBlockQueue(NativeMemory* memory) {
                         blkReqStatus = 1;
                     }
                 }
-            } else { // Write to disk
+            } else { // Host reads from guest memory -> Write to disk
                 if (disk.isOpened() && memory->isValidAddress(desc->addr, desc->len)) {
                     std::string err;
                     uint32_t sectorCount = desc->len / 512;
                     if (sectorCount > 0) {
-                        const uint8_t* src = memBase + desc->addr;
-                        if (!disk.writeSectors(reqHeader.sector, sectorCount, src, err)) {
+                        const uint8_t* memSrc = memBase + desc->addr;
+                        if (!disk.writeSectors(reqHeader.sector, sectorCount, memSrc, err)) {
                             blkReqStatus = 1;
                         }
                     }
@@ -184,57 +188,89 @@ void NativeDeviceManager::processVirtioBlockQueue(NativeMemory* memory) {
                 }
             }
 
-            if (!(desc->flags & 1)) { // No NEXT descriptor
+            if ((desc->flags & 1) == 0) { // VRING_DESC_F_NEXT not set -> End of chain
                 break;
             }
             currIdx = desc->next;
         }
 
+        // Put result on used ring
         uint16_t curUsedIdx = *usedIdxPtr;
-        uint64_t elemOffset = 4 + 8 * (curUsedIdx % blkQueueNum);
-        uint32_t* usedElemId = reinterpret_cast<uint32_t*>(usedPtr + elemOffset);
-        uint32_t* usedElemLen = reinterpret_cast<uint32_t*>(usedPtr + elemOffset + 4);
-        *usedElemId = headIdx;
-        *usedElemLen = totalWritten;
-        *usedIdxPtr = curUsedIdx + 1;
+        uint64_t usedElemOffset = blkQueueDeviceAddr + 4 + (curUsedIdx % blkQueueNum) * 8;
+        if (memory->isValidAddress(usedElemOffset, 8)) {
+            uint32_t* usedElemId = reinterpret_cast<uint32_t*>(memory->getRawBuffer() + usedElemOffset);
+            uint32_t* usedElemLen = reinterpret_cast<uint32_t*>(memory->getRawBuffer() + usedElemOffset + 4);
+            *usedElemId = headIdx;
+            *usedElemLen = totalWritten;
+            *usedIdxPtr = curUsedIdx + 1;
+        }
     }
 
-    blkInterruptStatus |= 1;
+    if (processedAny) {
+        blkInterruptStatus |= 1; // Used Buffer Notification
+        gic.setInterruptPending(NativeGIC::IRQ_VIRTIO_BLK, true);
+    }
 }
 
 bool NativeDeviceManager::handleMMIOWrite8(uint64_t address, uint8_t value) {
     std::lock_guard<std::mutex> lock(deviceMutex);
-    // PL011 UART TX register at 0x09000000
+
+    if (gic.isGICAddress(address)) {
+        gic.writeMMIO8(address, value);
+        return true;
+    }
+
     if (address == 0x09000000ULL || (address >= 0x09000000ULL && address < 0x09001000ULL)) {
         uart.writeByte(value);
         return true;
     }
-    // ACPI Power Controller
+
     if (address == 0x08000000ULL) {
         if (value == 0x01) powerEvent = NativePowerEvent::PAUSE;
         else if (value == 0x02) powerEvent = NativePowerEvent::SHUTDOWN;
         else if (value == 0x03) powerEvent = NativePowerEvent::TRAP_ERROR;
         return true;
     }
+
+    if (address >= 0x10000000ULL && address < 0x10400000ULL) {
+        uint64_t pixelIndex = (address - 0x10000000ULL) / 4;
+        display.writePixel(static_cast<uint32_t>(pixelIndex), static_cast<uint32_t>(value));
+        return true;
+    }
+
     return false;
 }
 
 bool NativeDeviceManager::handleMMIOWrite32(uint64_t address, uint32_t value, NativeMemory* memory) {
     std::lock_guard<std::mutex> lock(deviceMutex);
 
-    // VirtIO GPU Display Framebuffer Base MMIO range: 0x10000000 to 0x10400000
+    if (gic.isGICAddress(address)) {
+        gic.writeMMIO32(address, value);
+        return true;
+    }
+
+    // PL011 UART MMIO range: 0x09000000 to 0x09001000
+    if (address >= 0x09000000ULL && address < 0x09001000ULL) {
+        uint64_t reg = address - 0x09000000ULL;
+        if (reg == 0x00) { // UARTDR
+            uart.writeByte(static_cast<uint8_t>(value & 0xFF));
+        }
+        return true;
+    }
+
+    // VirtIO GPU Display Framebuffer MMIO range: 0x10000000 to 0x10400000
     if (address >= 0x10000000ULL && address < 0x10400000ULL) {
         uint32_t pixelIndex = static_cast<uint32_t>((address - 0x10000000ULL) / 4);
         display.writePixel(pixelIndex, value);
         return true;
     }
 
-    // VirtIO Block Storage Device MMIO range: 0x0A000000 to 0x0A000200
+    // VirtIO Block MMIO range: 0x0A000000 to 0x0A000200
     if (address >= 0x0A000000ULL && address < 0x0A000200ULL) {
         uint64_t reg = address - 0x0A000000ULL;
         switch (reg) {
-            case 0x00: { // Command register / Magic write: 1 = READ, 2 = WRITE, 3 = FLUSH
-                if (value == 1) { // Read sectors into memory at blkDmaAddr
+            case 0x00: { // Direct Command / Legacy mode
+                if (value == 1) { // Read sectors to memory at blkDmaAddr
                     if (memory && disk.isOpened() && memory->isValidAddress(blkDmaAddr, blkSectorCount * 512)) {
                         std::string err;
                         uint8_t* memDst = memory->getRawBuffer() + blkDmaAddr;
@@ -294,6 +330,9 @@ bool NativeDeviceManager::handleMMIOWrite32(uint64_t address, uint32_t value, Na
                 return true;
             case 0x64: // InterruptACK
                 blkInterruptStatus &= ~value;
+                if (blkInterruptStatus == 0) {
+                    gic.setInterruptPending(NativeGIC::IRQ_VIRTIO_BLK, false);
+                }
                 return true;
             case 0x70: // VirtIO Status register
                 blkStatus = value;
@@ -338,6 +377,9 @@ bool NativeDeviceManager::handleMMIOWrite32(uint64_t address, uint32_t value, Na
 
 uint8_t NativeDeviceManager::handleMMIORead8(uint64_t address) {
     std::lock_guard<std::mutex> lock(deviceMutex);
+    if (gic.isGICAddress(address)) {
+        return gic.readMMIO8(address);
+    }
     if (address == 0x09000000ULL || (address >= 0x09000000ULL && address < 0x09001000ULL)) {
         return uart.readRxByte();
     }
@@ -346,6 +388,42 @@ uint8_t NativeDeviceManager::handleMMIORead8(uint64_t address) {
 
 uint32_t NativeDeviceManager::handleMMIORead32(uint64_t address) {
     std::lock_guard<std::mutex> lock(deviceMutex);
+    if (gic.isGICAddress(address)) {
+        return gic.readMMIO32(address);
+    }
+    // PL011 UART MMIO range: 0x09000000 to 0x09001000
+    if (address >= 0x09000000ULL && address < 0x09001000ULL) {
+        uint64_t reg = address - 0x09000000ULL;
+        switch (reg) {
+            case 0x00: // UARTDR (Data register)
+                return static_cast<uint32_t>(uart.readRxByte());
+            case 0x18: { // UARTFR (Flag register)
+                // Bit 7: TXFE (TX FIFO empty) = 1 (Ready)
+                // Bit 5: TXFF (TX FIFO full) = 0
+                // Bit 4: RXFE (RX FIFO empty)
+                uint32_t flags = (1u << 7);
+                if (!uart.hasTxData()) flags |= (1u << 4);
+                return flags;
+            }
+            case 0x24: return 1;    // UARTIBRD
+            case 0x28: return 0;    // UARTFBRD
+            case 0x2C: return 0x60; // UARTLCR_H (8-bit word length)
+            case 0x30: return 0x301;// UARTCR (UARTEN | TXE | RXE)
+            case 0x38: return 0;    // UARTIMSC
+            case 0x3C: return 0;    // UARTRIS
+            case 0x40: return 0;    // UARTMIS
+            // ARM PrimeCell identification registers
+            case 0xFE0: return 0x11;
+            case 0xFE4: return 0x10;
+            case 0xFE8: return 0x14;
+            case 0xFEC: return 0x00;
+            case 0xFF0: return 0x0D;
+            case 0xFF4: return 0xF0;
+            case 0xFF8: return 0x05;
+            case 0xFFC: return 0xB1;
+            default: return 0;
+        }
+    }
     if (address >= 0x10000000ULL && address < 0x10400000ULL) {
         uint32_t pixelIndex = static_cast<uint32_t>((address - 0x10000000ULL) / 4);
         return display.readPixel(pixelIndex);
@@ -391,6 +469,7 @@ void NativeDeviceManager::resetAll() {
     uart.reset();
     display.reset();
     inputDevice.clear();
+    gic.reset();
     powerEvent = NativePowerEvent::NONE;
     blkDeviceFeaturesSel = 0;
     blkDriverFeatures = 0;

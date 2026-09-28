@@ -5,17 +5,45 @@
 # For more details, see
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# ==============================================================================
+# Mobile BM - Production R8 / ProGuard Obfuscation & Security Rules
+# ==============================================================================
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Preserve line numbers for stack trace mapping while removing source file names
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Optimization passes
+-repackageclasses ''
+-allowaccessmodification
+
+# Strip debug and verbose logging statements in release builds
+-assumenosideeffects class android.util.Log {
+    public static boolean isLoggable(java.lang.String, int);
+    public static int v(...);
+    public static int d(...);
+}
+
+# Preserve Room database entities and DAOs
+-keep class * extends androidx.room.RoomDatabase
+-keep @androidx.room.Entity class * { *; }
+-keep @androidx.room.Dao interface * { *; }
+
+# Preserve Moshi JSON serialization models (for Licensing API and VM config)
+-keepclassmembers class * {
+    @com.squareup.moshi.Json *;
+}
+-keep class com.example.vm.licensing.** { *; }
+-keep class com.example.vm.security.** { *; }
+
+# Protect internal cryptographic and integrity checks from inlining or stripping
+-keepclassmembers class com.example.vm.security.ProjectProtectionManager {
+    public *;
+}
+-keepclassmembers class com.example.vm.licensing.LicenseManager {
+    public *;
+}
+-keepclassmembers class com.example.vm.licensing.TimeTamperDetector {
+    public *;
+}
+

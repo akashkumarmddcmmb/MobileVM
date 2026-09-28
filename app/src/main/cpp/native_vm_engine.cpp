@@ -81,7 +81,7 @@ bool NativeVMEngine::configure() {
         return false;
     }
 
-    state = VMNativeState::CREATED;
+    state = VMNativeState::CONFIGURED;
     return true;
 }
 
@@ -91,14 +91,15 @@ bool NativeVMEngine::start() {
         state = VMNativeState::ERROR;
         return false;
     }
-    if (state != VMNativeState::CREATED && state != VMNativeState::STOPPED) {
+    if (state != VMNativeState::CONFIGURED && state != VMNativeState::STOPPED && state != VMNativeState::CREATED) {
         return false;
     }
     if (!cpu) {
         state = VMNativeState::ERROR;
         return false;
     }
-    state = VMNativeState::RUNNING;
+    // Set STARTING - real RUNNING is set only when guest instructions begin executing
+    state = VMNativeState::STARTING;
     cpu->setState(NativeCPUState::RUNNING);
     return true;
 }
@@ -113,7 +114,7 @@ bool NativeVMEngine::pause() {
 }
 
 bool NativeVMEngine::resume() {
-    if (state == VMNativeState::PAUSED && cpu) {
+    if (cpu) {
         state = VMNativeState::RUNNING;
         cpu->setState(NativeCPUState::RUNNING);
         return true;
@@ -122,9 +123,10 @@ bool NativeVMEngine::resume() {
 }
 
 bool NativeVMEngine::stop() {
-    state = VMNativeState::STOPPED;
+    state = VMNativeState::STOPPING;
     if (cpu) cpu->setState(NativeCPUState::HALTED);
     devices.getDisk().flush();
+    state = VMNativeState::STOPPED;
     return true;
 }
 
@@ -143,11 +145,14 @@ void NativeVMEngine::destroy() {
 }
 
 int NativeVMEngine::stepCycles(int maxCycles) {
-    if (state != VMNativeState::RUNNING || !cpu) {
+    if ((state != VMNativeState::RUNNING && state != VMNativeState::STARTING) || !cpu) {
         return 0;
     }
 
     uint64_t executed = cpu->runCycles(memory, devices, static_cast<uint64_t>(maxCycles));
+    if (executed > 0 && state == VMNativeState::STARTING) {
+        state = VMNativeState::RUNNING;
+    }
 
     // Check CPU & Device state transitions
     NativePowerEvent powerEv = devices.pollPowerEvent();
