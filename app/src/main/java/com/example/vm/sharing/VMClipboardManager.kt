@@ -9,12 +9,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * VMClipboardManager: Manages bidirectional clipboard exchange between the Android host
- * and guest virtual machine.
+ * VMClipboardManager: Manages bidirectional, secure clipboard exchange between the Android host
+ * and guest virtual machine with loop prevention, payload size bounding, and full Unicode support.
  */
 class VMClipboardManager(private val context: Context) {
     companion object {
         private const val TAG = "VMClipboardManager"
+        const val MAX_CLIPBOARD_CHARS = 262144 // 256 KB max text payload bound
     }
 
     private val androidClipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -25,14 +26,29 @@ class VMClipboardManager(private val context: Context) {
     private val _hostClipboardText = MutableStateFlow("")
     val hostClipboardText: StateFlow<String> = _hostClipboardText.asStateFlow()
 
+    // Loop prevention state
+    private var lastSentToGuest: String = ""
+    private var lastSentToHost: String = ""
+
     /**
      * Reads current text from Android system clipboard and stages it for guest ingestion.
+     * Prevents infinite bouncing and enforces max payload limit.
      */
     fun syncFromAndroidToGuest(): String {
         return try {
             val clip = androidClipboard.primaryClip
             if (clip != null && clip.itemCount > 0) {
-                val text = clip.getItemAt(0).coerceToText(context).toString()
+                var text = clip.getItemAt(0).coerceToText(context).toString()
+                if (text.length > MAX_CLIPBOARD_CHARS) {
+                    text = text.substring(0, MAX_CLIPBOARD_CHARS)
+                }
+
+                // Loop prevention: do not re-send what the guest just sent to host
+                if (text == lastSentToHost) {
+                    return ""
+                }
+
+                lastSentToGuest = text
                 _hostClipboardText.value = text
                 text
             } else {
@@ -50,14 +66,32 @@ class VMClipboardManager(private val context: Context) {
      */
     fun syncFromGuestToAndroid(guestText: String): Boolean {
         if (guestText.isEmpty()) return false
+        var safeText = guestText
+        if (safeText.length > MAX_CLIPBOARD_CHARS) {
+            safeText = safeText.substring(0, MAX_CLIPBOARD_CHARS)
+        }
+
+        // Loop prevention: do not re-send what host just sent to guest
+        if (safeText == lastSentToGuest) {
+            return true
+        }
+
         return try {
-            _guestClipboardText.value = guestText
-            val clip = ClipData.newPlainText("MobileVM Guest Clipboard", guestText)
+            lastSentToHost = safeText
+            _guestClipboardText.value = safeText
+            val clip = ClipData.newPlainText("MobileVM Guest Clipboard", safeText)
             androidClipboard.setPrimaryClip(clip)
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to copy guest text to Android clipboard: ${e.message}")
             false
         }
+    }
+
+    fun clear() {
+        lastSentToGuest = ""
+        lastSentToHost = ""
+        _guestClipboardText.value = ""
+        _hostClipboardText.value = ""
     }
 }

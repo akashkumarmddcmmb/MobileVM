@@ -58,6 +58,9 @@ class VMViewModel(application: Application) : AndroidViewModel(application) {
     val usbIdentifications: StateFlow<Map<String, com.example.vm.usb.UsbDeviceIdentification>> = usbDeviceManager.identifications
     val usbErrors: StateFlow<Map<String, com.example.vm.usb.UsbDeviceError>> = usbDeviceManager.errors
 
+    val sharedFolderManager = com.example.vm.sharing.SharedFolderManager(application)
+    val clipboardManager = com.example.vm.sharing.VMClipboardManager(application)
+
     lateinit var storageManager: com.example.vm.storage.VMStorageManager
     lateinit var allDisks: StateFlow<List<com.example.vm.storage.VmDisk>>
     lateinit var allSnapshots: StateFlow<List<com.example.vm.storage.VmSnapshot>>

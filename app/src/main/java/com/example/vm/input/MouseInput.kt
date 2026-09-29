@@ -23,7 +23,7 @@ data class MouseInputEvent(
 
 /**
  * MouseInput processes relative mouse motion, wheel deltas, absolute cursor points,
- * and mouse buttons and dispatches them to VirtualInputDevice.
+ * mouse buttons, and pointer capture/release mechanisms.
  */
 class MouseInput(
     private val virtualDevice: VirtualInputDevice
@@ -31,6 +31,24 @@ class MouseInput(
     private var lastAbsX = 0
     private var lastAbsY = 0
     private var currentButtonMask = 0
+
+    var isPointerCaptured: Boolean = false
+        private set
+
+    fun requestPointerCapture(): Boolean {
+        isPointerCaptured = true
+        return true
+    }
+
+    fun releasePointerCapture(): Boolean {
+        isPointerCaptured = false
+        return true
+    }
+
+    fun togglePointerCapture(): Boolean {
+        isPointerCaptured = !isPointerCaptured
+        return isPointerCaptured
+    }
 
     fun processMove(dx: Int, dy: Int, absX: Int = -1, absY: Int = -1, buttons: Int = currentButtonMask, wheelDelta: Int = 0) {
         currentButtonMask = buttons
@@ -88,5 +106,6 @@ class MouseInput(
         lastAbsX = 0
         lastAbsY = 0
         currentButtonMask = 0
+        isPointerCaptured = false
     }
 }

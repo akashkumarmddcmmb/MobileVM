@@ -94,7 +94,18 @@ class VMEngine(
             return err
         }
 
-        // 1. Host Physical Memory Safety validation
+        // 1. Genuine ARM64 Linux Kernel validation & sandbox enforcement
+        if (config.kernelImagePath.isEmpty()) {
+            val err = VMError.kernelMissing(
+                path = "(none)",
+                details = "NOT IMPLEMENTED: An authentic ARM64 Linux Kernel Image must be imported before booting."
+            )
+            _state.value = VMState.NOT_VERIFIED
+            _lastError.value = err
+            return err
+        }
+
+        // 2. Host Physical Memory Safety validation
         val hostStats = memoryManager.getHostMemoryStats()
         val safety = memoryManager.getMemorySafetyRecommendation(config.ramSizeMb)
         if (safety is MemoryManager.SafetyResult.Danger) {
@@ -104,7 +115,7 @@ class VMEngine(
             return err
         }
 
-        // 2. Virtual Disk existence, sandbox containment & readability validation
+        // 3. Virtual Disk existence, sandbox containment & readability validation
         if (config.diskImagePath.isNotEmpty()) {
             if (!diskBackend.isGuestImagePathAuthorized(config.diskImagePath) && !diskBackend.isPathAuthorized(config.diskImagePath)) {
                 val err = VMError.diskInvalid(config.diskImagePath, "Security Violation: Disk image path is outside authorized application storage.")
@@ -125,17 +136,6 @@ class VMEngine(
                 _lastError.value = err
                 return err
             }
-        }
-
-        // 3. Genuine ARM64 Linux Kernel validation & sandbox enforcement
-        if (config.kernelImagePath.isEmpty()) {
-            val err = VMError.kernelMissing(
-                path = "(none)",
-                details = "NOT IMPLEMENTED: An authentic ARM64 Linux Kernel Image must be imported before booting."
-            )
-            _state.value = VMState.NOT_VERIFIED
-            _lastError.value = err
-            return err
         }
 
         if (!diskBackend.isGuestImagePathAuthorized(config.kernelImagePath)) {

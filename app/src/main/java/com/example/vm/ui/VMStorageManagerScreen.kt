@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.vm.storage.*
+import java.io.File
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -129,6 +130,12 @@ fun VMStorageManagerScreen(
                 Tab(
                     selected = activeTab == 3,
                     onClick = { activeTab = 3 },
+                    text = { Text("Shared Folders") },
+                    modifier = Modifier.testTag("storage_tab_shared")
+                )
+                Tab(
+                    selected = activeTab == 4,
+                    onClick = { activeTab = 4 },
                     text = { Text("Audit Log") },
                     modifier = Modifier.testTag("storage_tab_logs")
                 )
@@ -162,7 +169,8 @@ fun VMStorageManagerScreen(
                         }
                     }
                 )
-                3 -> AuditLogTabContent(logs = storageLogs)
+                3 -> SharedFoldersTabContent(sharedFolderManager = viewModel.sharedFolderManager)
+                4 -> AuditLogTabContent(logs = storageLogs)
             }
         }
     }
@@ -368,6 +376,141 @@ private fun BackupsTabContent(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SharedFoldersTabContent(sharedFolderManager: com.example.vm.sharing.SharedFolderManager) {
+    var shares by remember { mutableStateOf(sharedFolderManager.getShares()) }
+    var showAddDialog by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Android ↔ Guest Shared Folders:", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Button(
+                onClick = { showAddDialog = true },
+                modifier = Modifier.testTag("add_shared_folder_button")
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null)
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Add Folder")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (shares.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No shared folders configured.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(shares, key = { it.id }) { share ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.FolderShared, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(share.name, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                }
+                                if (share.id != "default_shared") {
+                                    IconButton(
+                                        onClick = {
+                                            sharedFolderManager.removeShare(share.id)
+                                            shares = sharedFolderManager.getShares()
+                                        }
+                                    ) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Remove share", tint = MaterialTheme.colorScheme.error)
+                                    }
+                                } else {
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            "Default",
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text("Guest Mount: ${share.guestMountPath}", fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                            Text("Host Location: ${share.hostAbsolutePath}", fontSize = 11.sp, color = Color.Gray, fontFamily = FontFamily.Monospace)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    if (share.isReadOnly) "🔒 Read-Only" else "✏️ Read/Write",
+                                    fontSize = 11.sp,
+                                    color = if (share.isReadOnly) Color(0xFFFFB300) else Color(0xFF00E676)
+                                )
+                                Text("• Path Traversal Protected", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAddDialog) {
+        var folderName by remember { mutableStateOf("Documents") }
+        var guestPath by remember { mutableStateOf("/shared/documents") }
+        var isReadOnly by remember { mutableStateOf(false) }
+
+        AlertDialog(
+            onDismissRequest = { showAddDialog = false },
+            title = { Text("Add Host Shared Folder") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = folderName,
+                        onValueChange = { folderName = it },
+                        label = { Text("Folder Name") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = guestPath,
+                        onValueChange = { guestPath = it },
+                        label = { Text("Guest Mount Path") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = isReadOnly, onCheckedChange = { isReadOnly = it })
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Mount as Read-Only")
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val hostPath = File(sharedFolderManager.getSharedFolderRoot(), folderName.lowercase()).absolutePath
+                        sharedFolderManager.addShare(folderName, guestPath, hostPath, isReadOnly)
+                        shares = sharedFolderManager.getShares()
+                        showAddDialog = false
+                    }
+                ) {
+                    Text("Add Share")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddDialog = false }) { Text("Cancel") }
+            }
+        )
     }
 }
 

@@ -69,7 +69,9 @@ object VMLogger {
         }
     }
 
-    private fun sanitizeMessage(msg: String): String {
+    fun sanitize(msg: String): String = sanitizeMessage(msg)
+
+    fun sanitizeMessage(msg: String): String {
         // Strip out private keys, authorization tokens or user passwords
         return msg
             .replace("(?i)password=[^&\\s]+".toRegex(), "password=***")

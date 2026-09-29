@@ -686,6 +686,8 @@ fun VMCard(
             VMState.CONFIGURED -> Color(0xFF81D4FA)
             VMState.CREATED -> Color(0xFF81D4FA)
             VMState.PAUSED -> Color(0xFFFFD54F)
+            VMState.SAVING -> Color(0xFFFFB300)
+            VMState.RESTORING -> Color(0xFFCE93D8)
             VMState.STOPPING -> Color(0xFFFFB300)
             VMState.NOT_VERIFIED -> Color(0xFFFF9100)
             VMState.STOPPED -> Color.Gray
