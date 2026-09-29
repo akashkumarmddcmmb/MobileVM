@@ -10,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -105,7 +106,7 @@ fun VMControlCenterScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack, modifier = Modifier.testTag("control_center_back")) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                     }
                 },
                 actions = {
@@ -766,8 +767,19 @@ fun NetworkSettingsTab(
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Network Status", fontSize = 11.sp, color = Color.Gray)
                 Text("Mode: $networkMode", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                Text("Guest IP: 10.0.2.15 (Default NAT)", fontSize = 11.sp, color = Color.LightGray, fontFamily = FontFamily.Monospace)
-                Text("Gateway: 10.0.2.2 • DNS: ${config.dnsServer}", fontSize = 11.sp, color = Color.LightGray, fontFamily = FontFamily.Monospace)
+                if (networkMode == "OFF") {
+                    Text("State: Disabled (Air-Gapped / No NIC)", fontSize = 11.sp, color = Color.Gray)
+                } else {
+                    val isEngineRunning = engine?.state?.value == VMState.RUNNING
+                    if (isEngineRunning) {
+                        Text("State: Attached to VM (User-mode SLIRP / NAT)", fontSize = 11.sp, color = Color(0xFF00E676))
+                        Text("Guest IP: 10.0.2.15 (VirtIO-Net)", fontSize = 11.sp, color = Color.LightGray, fontFamily = FontFamily.Monospace)
+                        Text("Gateway: 10.0.2.2 • DNS: ${config.dnsServer}", fontSize = 11.sp, color = Color.LightGray, fontFamily = FontFamily.Monospace)
+                    } else {
+                        Text("State: Configured ($networkMode) — VM Inactive", fontSize = 11.sp, color = Color.LightGray)
+                        Text("Gateway: 10.0.2.2 • Configured DNS: ${config.dnsServer}", fontSize = 11.sp, color = Color.Gray, fontFamily = FontFamily.Monospace)
+                    }
+                }
             }
         }
     }

@@ -29,6 +29,12 @@
 -keep @androidx.room.Entity class * { *; }
 -keep @androidx.room.Dao interface * { *; }
 
+# Preserve JNI methods and NativeVMBinding from renaming or stripping
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+-keep class com.example.vm.nativebridge.** { *; }
+
 # Preserve Moshi JSON serialization models (for Licensing API and VM config)
 -keepclassmembers class * {
     @com.squareup.moshi.Json *;

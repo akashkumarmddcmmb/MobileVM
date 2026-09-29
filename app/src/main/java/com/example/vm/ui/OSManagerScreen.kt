@@ -1,6 +1,10 @@
 package com.example.vm.ui
 
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -10,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,6 +31,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.vm.core.VMConfig
 import com.example.vm.guest.os.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -75,7 +83,7 @@ fun OSManagerScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack, modifier = Modifier.testTag("os_manager_back")) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0F141C))
@@ -466,6 +474,68 @@ fun DownloadManagerTabContent(progressMap: Map<String, OSDownloadProgress>, down
 @Composable
 fun ImportImageTabContent(onImported: (ImportedImageInfo) -> Unit) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var isImporting by remember { mutableStateOf(false) }
+    var importStatus by remember { mutableStateOf<String?>(null) }
+    var importError by remember { mutableStateOf<String?>(null) }
+    var importedResult by remember { mutableStateOf<ImportedImageInfo?>(null) }
+
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            coroutineScope.launch(Dispatchers.IO) {
+                isImporting = true
+                importError = null
+                importStatus = "Opening selected file..."
+                try {
+                    val contentResolver = context.contentResolver
+                    val fileName = contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (nameIndex != -1 && cursor.moveToFirst()) {
+                            cursor.getString(nameIndex)
+                        } else null
+                    } ?: "imported_guest_image.img"
+
+                    importStatus = "Importing $fileName into private sandbox..."
+                    val inputStream = contentResolver.openInputStream(uri)
+                    if (inputStream == null) {
+                        withContext(Dispatchers.Main) {
+                            isImporting = false
+                            importError = "Could not open selected file stream."
+                        }
+                        return@launch
+                    }
+
+                    val isIso = fileName.endsWith(".iso", ignoreCase = true)
+                    val result = ImportManager.importImageStream(
+                        context = context,
+                        inputStream = inputStream,
+                        destinationFileName = fileName,
+                        targetMode = if (isIso) InstallationMode.MODE_B_ISO_INSTALLER else InstallationMode.MODE_A_PREINSTALLED
+                    )
+
+                    withContext(Dispatchers.Main) {
+                        isImporting = false
+                        when (result) {
+                            is ImportResult.Success -> {
+                                importedResult = result.imageInfo
+                                importStatus = "Successfully imported and verified: ${result.imageInfo.fileName}"
+                            }
+                            is ImportResult.Failure -> {
+                                importError = result.reason
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        isImporting = false
+                        importError = "Import failed: ${e.localizedMessage ?: "Unknown I/O error"}"
+                    }
+                }
+            }
+        }
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Card(
@@ -485,16 +555,76 @@ fun ImportImageTabContent(onImported: (ImportedImageInfo) -> Unit) {
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Button(
-                    onClick = {
-                        Toast.makeText(context, "Select an ARM64 image from device file storage.", Toast.LENGTH_LONG).show()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.fillMaxWidth().testTag("btn_browse_custom_image")
-                ) {
-                    Icon(Icons.Default.FolderOpen, contentDescription = "Browse", tint = Color.Black)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Select Local File", color = Color.Black, fontWeight = FontWeight.Bold)
+                if (isImporting) {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = Color(0xFF232D38)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = importStatus ?: "Importing...",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontFamily = FontFamily.Monospace
+                    )
+                } else {
+                    Button(
+                        onClick = {
+                            filePickerLauncher.launch("*/*")
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.fillMaxWidth().testTag("btn_browse_custom_image")
+                    ) {
+                        Icon(Icons.Default.FolderOpen, contentDescription = "Browse", tint = Color.Black)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Select Local File (*.img, *.iso, *.raw)", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                if (importError != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Surface(
+                        color = Color(0x33FF5252),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, Color(0x66FF5252)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.ErrorOutline, contentDescription = "Error", tint = Color(0xFFFF5252), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Import Rejected", color = Color(0xFFFF5252), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(text = importError ?: "", color = Color.White, fontSize = 11.sp)
+                        }
+                    }
+                }
+
+                if (importedResult != null) {
+                    val info = importedResult!!
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Surface(
+                        color = Color(0x3300E676),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, Color(0x6600E676)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text("File: ${info.fileName}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("Format: ${info.format} • Detected: ${info.detectedArchitecture.displayName}", fontSize = 11.sp, color = Color(0xFF00E676))
+                            Text("Size: ${info.sizeBytes / (1024 * 1024)} MB", fontSize = 11.sp, color = Color.LightGray)
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Button(
+                                onClick = { onImported(info) },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Create VM With This Image", color = Color.Black, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 }
             }
         }

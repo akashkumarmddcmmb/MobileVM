@@ -73,7 +73,7 @@ fun VMCreatorWizardDialog(
     }
     var networkMode by remember { mutableStateOf("NAT") }
 
-    AlertDialog(
+    BasicAlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier
             .fillMaxWidth()

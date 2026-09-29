@@ -80,7 +80,8 @@ jobs:
             "platform-tools" \
             "platforms;android-36" \
             "build-tools;36.0.0" \
-            "cmake;3.22.1"
+            "cmake;3.22.1" \
+            "ndk;26.1.10909125"
 
       - name: Verify Android SDK
         shell: bash
@@ -95,7 +96,7 @@ jobs:
 
           echo "Installed packages:"
           "$SDKMANAGER" --list_installed | grep -E \
-            "platform-tools|platforms;android-36|build-tools;36.0.0|cmake;3.22.1" || true
+            "platform-tools|platforms;android-36|build-tools;36.0.0|cmake;3.22.1|ndk;26.1.10909125" || true
 
       - name: Check project structure
         shell: bash
@@ -108,50 +109,28 @@ jobs:
           test -f gradle/libs.versions.toml
           test -f gradle/wrapper/gradle-wrapper.properties
           test -f app/src/main/cpp/CMakeLists.txt
+          test -f gradlew
 
           echo "Required project files found."
 
-      - name: Download Gradle 9.3.1
+      - name: Setup Gradle Wrapper Executable
         shell: bash
         run: |
-          set -e
-
-          GRADLE_VERSION="9.3.1"
-          GRADLE_DIR="$RUNNER_TEMP/gradle-$GRADLE_VERSION"
-
-          curl -fL \
-            "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" \
-            -o "$RUNNER_TEMP/gradle.zip"
-
-          mkdir -p "$RUNNER_TEMP/gradle"
-
-          unzip -q \
-            "$RUNNER_TEMP/gradle.zip" \
-            -d "$RUNNER_TEMP/gradle"
-
-          echo "$RUNNER_TEMP/gradle/gradle-${GRADLE_VERSION}/bin" >> "$GITHUB_PATH"
-
-          echo "Gradle installed:"
-          "$RUNNER_TEMP/gradle/gradle-${GRADLE_VERSION}/bin/gradle" --version
-
-      - name: Verify Gradle configuration
-        shell: bash
-        run: |
-          set -e
-          gradle --version
+          chmod +x gradlew
+          ./gradlew --version
 
       - name: Clean build
         shell: bash
         run: |
           set -e
-          gradle --no-daemon clean
+          ./gradlew --no-daemon clean
 
       - name: Build Debug APK
         shell: bash
         run: |
           set -e
 
-          gradle \
+          ./gradlew \
             --no-daemon \
             --stacktrace \
             assembleDebug
@@ -161,9 +140,21 @@ jobs:
         run: |
           set -e
 
-          gradle \
+          ./gradlew \
             --no-daemon \
             testDebugUnitTest
+
+      - name: Build Release APK (Conditional)
+        shell: bash
+        if: env.STORE_PASSWORD != '' && env.KEY_PASSWORD != ''
+        env:
+          KEYSTORE_PATH: ${{ secrets.KEYSTORE_PATH }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -e
+          echo "Release keystore credentials detected. Building release APK..."
+          ./gradlew --no-daemon assembleRelease
 
       - name: Verify APK
         shell: bash

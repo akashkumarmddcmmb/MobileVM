@@ -8,6 +8,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -285,7 +286,7 @@ fun LinuxTerminalView(
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                 modifier = Modifier.testTag("btn_send_terminal")
             ) {
-                Icon(Icons.Default.Send, contentDescription = "Send", tint = Color.Black)
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = Color.Black)
             }
         }
     }
