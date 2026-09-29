@@ -20,7 +20,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  JAVA_VERSION: "17"
+  JAVA_VERSION: "21"
   ANDROID_COMPILE_SDK: "36"
   ANDROID_BUILD_TOOLS: "36.0.0"
   ANDROID_NDK_VERSION: "26.1.10909125"
@@ -35,50 +35,77 @@ jobs:
 
       - name: Checkout source
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Setup Java 17
-        uses: actions/setup-java@v6
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: ${{ env.JAVA_VERSION }}
+          java-version: "21"
           cache: gradle
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@v4
         with:
           cache-provider: basic
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK components
+      - name: Install Android SDK, NDK and CMake
         shell: bash
         run: |
           set -euo pipefail
 
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
 
-          sdkmanager \
+          if [ -z "$SDK" ] || [ ! -d "$SDK" ]; then
+            echo "ERROR: Android SDK was not found."
+            exit 1
+          fi
+
+          SDKMANAGER="$(find "$SDK/cmdline-tools" \
+            -type f \
+            -name sdkmanager \
+            2>/dev/null | head -n 1 || true)"
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager was not found."
+            exit 1
+          fi
+
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+
+          "$SDKMANAGER" \
             "platform-tools" \
             "platforms;android-${ANDROID_COMPILE_SDK}" \
             "build-tools;${ANDROID_BUILD_TOOLS}" \
-            "cmake;${CMAKE_VERSION}" \
-            "ndk;${ANDROID_NDK_VERSION}"
+            "ndk;${ANDROID_NDK_VERSION}" \
+            "cmake;${CMAKE_VERSION}"
 
-      - name: Verify project structure
+      - name: Prepare Gradle wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f gradlew
+          test -f gradle/wrapper/gradle-wrapper.jar
+          test -f gradle/wrapper/gradle-wrapper.properties
+
+          chmod +x gradlew
+
+      - name: Verify project files
         shell: bash
         run: |
           set -euo pipefail
 
           required_files=(
-            "gradlew"
-            "gradle/wrapper/gradle-wrapper.properties"
-            "gradle/wrapper/gradle-wrapper.jar"
             "settings.gradle.kts"
             "build.gradle.kts"
+            "gradle.properties"
             "gradle/libs.versions.toml"
+            "gradlew"
+            "gradle/wrapper/gradle-wrapper.jar"
+            "gradle/wrapper/gradle-wrapper.properties"
             "app/build.gradle.kts"
             "app/src/main/AndroidManifest.xml"
             "app/src/main/cpp/CMakeLists.txt"
@@ -91,34 +118,25 @@ jobs:
             fi
           done
 
-          chmod +x ./gradlew
+          echo "All required MobileVM project files are present."
 
-          echo "Project structure verified."
-
-      - name: Verify Java Gradle Android environment
+      - name: Verify Java and Gradle
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "===== JAVA ====="
           java -version
-
-          echo ""
-          echo "===== GRADLE ====="
           ./gradlew --version
 
-          echo ""
-          echo "===== ANDROID SDK ====="
-          echo "${ANDROID_SDK_ROOT:-${ANDROID_HOME}}"
+      - name: Verify Gradle configuration
+        shell: bash
+        run: |
+          set -euo pipefail
 
-          echo ""
-          echo "===== CMAKE ====="
-          cmake --version
-
-          echo ""
-          echo "===== NDK ====="
-          test -d "${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
-          echo "${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
+          ./gradlew \
+            --no-daemon \
+            --stacktrace \
+            help
 
       - name: Clean project
         shell: bash
@@ -130,8 +148,7 @@ jobs:
             --stacktrace \
             clean
 
-      - name: Compile and run unit tests
-        id: unit_tests
+      - name: Compile Kotlin and KSP
         shell: bash
         run: |
           set -euo pipefail
@@ -140,45 +157,27 @@ jobs:
             --no-daemon \
             --stacktrace \
             :app:compileDebugKotlin \
-            :app:kspDebugKotlin \
-            :app:testDebugUnitTest
+            :app:kspDebugKotlin
 
-      - name: Diagnose failed unit tests
-        if: failure() && steps.unit_tests.outcome == 'failure'
+      - name: Run unit tests
         shell: bash
         run: |
-          set -u
-
-          echo "=============================================="
-          echo "MobileVM UNIT TEST FAILURE DIAGNOSTICS"
-          echo "=============================================="
+          set -euo pipefail
 
           ./gradlew \
             --no-daemon \
             --stacktrace \
-            --info \
-            --rerun-tasks \
-            :app:testDebugUnitTest \
-            2>&1 | tee unit-test-diagnostics.log
-
-          TEST_EXIT=${PIPESTATUS[0]}
-
-          echo ""
-          echo "Diagnostic test exit code: ${TEST_EXIT}"
-
-          exit "${TEST_EXIT}"
+            :app:testDebugUnitTest
 
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: MobileVM-test-reports
+          name: mobilevm-test-reports
           path: |
-            app/build/reports/tests/
-            app/build/test-results/
-            unit-test-diagnostics.log
+            app/build/reports/tests/**
+            app/build/test-results/**
           if-no-files-found: warn
-          retention-days: 14
 
       - name: Build Debug APK
         shell: bash
@@ -200,61 +199,74 @@ jobs:
             --stacktrace \
             :app:assembleRelease
 
-      - name: Verify APKs and generate SHA-256
+      - name: Verify APK files
         shell: bash
         run: |
           set -euo pipefail
 
-          DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
-          RELEASE_APK="app/build/outputs/apk/release/app-release.apk"
+          DEBUG_APK="$(find app/build/outputs/apk/debug \
+            -type f \
+            -name "*.apk" \
+            | head -n 1 || true)"
 
-          test -f "$DEBUG_APK"
-          test -f "$RELEASE_APK"
+          RELEASE_APK="$(find app/build/outputs/apk/release \
+            -type f \
+            -name "*.apk" \
+            | head -n 1 || true)"
 
-          echo "===== DEBUG APK ====="
-          ls -lh "$DEBUG_APK"
+          if [ -z "$DEBUG_APK" ]; then
+            echo "ERROR: Debug APK was not generated."
+            exit 1
+          fi
 
-          echo ""
-          echo "===== RELEASE APK ====="
-          ls -lh "$RELEASE_APK"
+          if [ -z "$RELEASE_APK" ]; then
+            echo "ERROR: Release APK was not generated."
+            exit 1
+          fi
 
-          echo ""
-          echo "===== DEBUG SHA-256 ====="
-          sha256sum "$DEBUG_APK"
+          echo "Debug APK: $DEBUG_APK"
+          echo "Release APK: $RELEASE_APK"
 
-          echo ""
-          echo "===== RELEASE SHA-256 ====="
-          sha256sum "$RELEASE_APK"
+      - name: Prepare release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
 
-          sha256sum "$DEBUG_APK" > "${DEBUG_APK}.sha256"
-          sha256sum "$RELEASE_APK" > "${RELEASE_APK}.sha256"
+          rm -rf release-artifacts
+          mkdir -p release-artifacts
+
+          find app/build/outputs/apk \
+            -type f \
+            -name "*.apk" \
+            -exec cp {} release-artifacts/ \;
+
+          cd release-artifacts
+
+          sha256sum *.apk > SHA256SUMS.txt
+
+          echo "Generated checksums:"
+          cat SHA256SUMS.txt
 
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: MobileVM-APKs
-          path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/release/app-release.apk
+          name: mobilevm-apks
+          path: release-artifacts/*.apk
           if-no-files-found: error
-          retention-days: 30
 
-      - name: Upload APK checksums
+      - name: Upload SHA256 checksums
         uses: actions/upload-artifact@v4
         with:
-          name: MobileVM-APK-SHA256
-          path: |
-            app/build/outputs/apk/debug/app-debug.apk.sha256
-            app/build/outputs/apk/release/app-release.apk.sha256
+          name: mobilevm-sha256
+          path: release-artifacts/SHA256SUMS.txt
           if-no-files-found: error
-          retention-days: 30
 
       - name: Attest Debug APK
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v2
         with:
-          subject-path: app/build/outputs/apk/debug/app-debug.apk
+          subject-path: app/build/outputs/apk/debug/*.apk
 
       - name: Attest Release APK
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v2
         with:
-          subject-path: app/build/outputs/apk/release/app-release.apk
+          subject-path: app/build/outputs/apk/release/*.apk
