@@ -74,6 +74,11 @@ import com.example.vm.usb.UsbStorageDeviceInfo
 import com.example.vm.usb.UsbStorageType
 import com.example.vm.usb.UsbStorageAccessMode
 import com.example.vm.usb.UsbStorageConnectionState
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventType
 import java.io.File
@@ -1056,6 +1061,8 @@ fun ConsoleTab(viewModel: VMViewModel, engine: VMEngine) {
     
     val clipboardManager = LocalClipboardManager.current
     val listState = rememberLazyListState()
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
     var commandText by remember { mutableStateOf("") }
     var copiedFeedback by remember { mutableStateOf(false) }
 
@@ -1341,13 +1348,17 @@ fun ConsoleTab(viewModel: VMViewModel, engine: VMEngine) {
             Spacer(modifier = Modifier.height(8.dp))
         }
 
-        // 3. Terminal Output Screen
+        // 3. Terminal Output Screen (Tap to focus Android soft keyboard)
         Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
                 .background(Color(0xFF040608), RoundedCornerShape(8.dp))
                 .border(1.dp, Color(0xFF1B222A), RoundedCornerShape(8.dp))
+                .clickable {
+                    focusRequester.requestFocus()
+                    keyboardController?.show()
+                }
                 .padding(10.dp)
         ) {
             LazyColumn(
@@ -1428,10 +1439,17 @@ fun ConsoleTab(viewModel: VMViewModel, engine: VMEngine) {
                     value = commandText,
                     onValueChange = { commandText = it },
                     textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
-                    placeholder = { Text("Enter guest command (e.g. ls, pwd, cat, echo)...", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = Color.DarkGray) },
+                    placeholder = { Text("Tap to type with Android keyboard (Gboard)...", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = Color.DarkGray) },
                     singleLine = true,
-                    modifier = Modifier.weight(1f).testTag("terminal_input"),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(focusRequester)
+                        .testTag("terminal_input"),
+                    keyboardOptions = KeyboardOptions(
+                        imeAction = ImeAction.Send,
+                        autoCorrectEnabled = false,
+                        keyboardType = KeyboardType.Ascii
+                    ),
                     keyboardActions = KeyboardActions(onSend = {
                         if (commandText.isNotEmpty()) {
                             viewModel.executeConsoleCommand(commandText)

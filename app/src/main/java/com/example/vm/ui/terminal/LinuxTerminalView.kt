@@ -16,6 +16,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
@@ -45,6 +53,8 @@ fun LinuxTerminalView(
     val terminalOutput = remember(consoleHistory) { consoleHistory.joinToString("\n") }
     val isRunning = state == VMState.RUNNING
 
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
     var inputCharBuffer by remember { mutableStateOf("") }
     var isCtrlActive by remember { mutableStateOf(false) }
     var isAltActive by remember { mutableStateOf(false) }
@@ -127,13 +137,17 @@ fun LinuxTerminalView(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Terminal Screen (Guest Output Display)
+        // Terminal Screen (Guest Output Display - Tap to open normal Android keyboard)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 180.dp, max = 280.dp)
                 .background(Color(0xFF040608), RoundedCornerShape(8.dp))
                 .border(1.dp, Color(0xFF141A23), RoundedCornerShape(8.dp))
+                .clickable {
+                    focusRequester.requestFocus()
+                    keyboardController?.show()
+                }
                 .padding(8.dp)
         ) {
             Text(
@@ -241,7 +255,7 @@ fun LinuxTerminalView(
                 textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
                 placeholder = {
                     Text(
-                        if (isRunning) "Send keystrokes to guest stdin..." else "VM must be RUNNING to send input",
+                        if (isRunning) "Tap to type with Android keyboard (Gboard)..." else "VM must be RUNNING to send input",
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
                         color = Color.DarkGray
@@ -251,7 +265,32 @@ fun LinuxTerminalView(
                 enabled = isRunning,
                 modifier = Modifier
                     .weight(1f)
+                    .focusRequester(focusRequester)
                     .testTag("terminal_stdin_input"),
+                keyboardOptions = KeyboardOptions(
+                    imeAction = ImeAction.Send,
+                    autoCorrectEnabled = false,
+                    keyboardType = KeyboardType.Ascii
+                ),
+                keyboardActions = KeyboardActions(onSend = {
+                    if (inputCharBuffer.isNotEmpty() && isRunning) {
+                        for (c in inputCharBuffer) {
+                            val charToSend = if (isCtrlActive && c in 'a'..'z') {
+                                (c.code - 'a'.code + 1).toByte()
+                            } else if (isCtrlActive && c in 'A'..'Z') {
+                                (c.code - 'A'.code + 1).toByte()
+                            } else {
+                                c.code.toByte()
+                            }
+                            engine?.serialConsole?.sendRawByte(charToSend)
+                        }
+                        // Send carriage return + newline
+                        engine?.serialConsole?.sendRawBytes(byteArrayOf('\r'.code.toByte(), '\n'.code.toByte()))
+                        inputCharBuffer = ""
+                        isCtrlActive = false
+                        isAltActive = false
+                    }
+                }),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color(0xFF141A23),
                     unfocusedContainerColor = Color(0xFF0F141C),
