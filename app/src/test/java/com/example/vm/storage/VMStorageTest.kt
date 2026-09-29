@@ -129,4 +129,87 @@ class VMStorageTest {
         assertTrue(restoredConfig!!.name.contains("Restored"))
         assertEquals("UBUNTU_22_04", restoredConfig.guestOsType)
     }
+
+    @Test
+    fun testGptHeaderAndPartitionDetection() {
+        runBlocking {
+            val diskFile = File(storageManager.getVmDisksDirectory(999L), "gpt_test.img")
+            diskFile.parentFile?.mkdirs()
+
+            // Create a 10MB test disk file
+            java.io.RandomAccessFile(diskFile, "rw").use { raf ->
+                raf.setLength(10L * 1024L * 1024L)
+
+                // Write Protective MBR at LBA 0
+                val mbr = ByteArray(512)
+                mbr[446 + 4] = 0xEE.toByte() // 0xEE = GPT Protective MBR
+                mbr[510] = 0x55.toByte()
+                mbr[511] = 0xAA.toByte()
+                raf.seek(0)
+                raf.write(mbr)
+
+                // Write GPT Header at LBA 1 (Sector 1)
+                val gptHeader = ByteArray(512)
+                System.arraycopy("EFI PART".toByteArray(Charsets.US_ASCII), 0, gptHeader, 0, 8)
+                val buf = java.nio.ByteBuffer.wrap(gptHeader).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                buf.putInt(8, 0x00010000) // Revision 1.0
+                buf.putInt(12, 92) // Header size
+                buf.putLong(24, 1L) // My LBA = 1
+                buf.putLong(40, 34L) // First usable LBA
+                buf.putLong(48, 20000L) // Last usable LBA
+                buf.putLong(72, 2L) // Partition entries LBA = 2
+                buf.putInt(80, 128) // Num partition entries
+                buf.putInt(84, 128) // Entry size
+                raf.seek(512)
+                raf.write(gptHeader)
+
+                // Write Partition Entry at LBA 2 (EFI System Partition GUID)
+                val partEntry = ByteArray(512)
+                val espGuidBytes = byteArrayOf(
+                    0x28, 0x73, 0x2A, 0xC1.toByte(), 0x1F, 0xF8.toByte(), 0xD2.toByte(), 0x11,
+                    0xBA.toByte(), 0x4B, 0x00, 0xA0.toByte(), 0xC9.toByte(), 0x3E, 0xC9.toByte(), 0x3B
+                )
+                System.arraycopy(espGuidBytes, 0, partEntry, 0, 16)
+                val pBuf = java.nio.ByteBuffer.wrap(partEntry).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                pBuf.putLong(32, 2048L) // Start LBA = 2048
+                pBuf.putLong(40, 10000L) // End LBA = 10000
+                raf.seek(1024)
+                raf.write(partEntry)
+            }
+
+            val scheme = diskBackend.detectPartitionScheme(diskFile.absolutePath)
+            assertEquals(AndroidStorageDiskBackend.PartitionTableType.GPT, scheme.scheme)
+            assertTrue(scheme.isEfiBootable)
+            assertNotNull(scheme.gptInfo)
+            assertTrue(scheme.gptInfo!!.isValidSignature)
+            assertTrue(scheme.gptInfo!!.partitions.isNotEmpty())
+            assertTrue(scheme.gptInfo!!.partitions[0].isEfiSystemPartition)
+
+            diskFile.delete()
+        }
+    }
+
+    @Test
+    fun testSectorReadWriteAndBounds() {
+        val diskFile = File(storageManager.getVmDisksDirectory(888L), "rw_test.img")
+        diskFile.parentFile?.mkdirs()
+
+        java.io.RandomAccessFile(diskFile, "rw").use { raf ->
+            raf.setLength(1024L * 1024L) // 1 MB = 2048 sectors
+        }
+
+        val testData = ByteArray(512) { it.toByte() }
+        val writeOk = diskBackend.writeSectors(diskFile.absolutePath, 10, testData)
+        assertTrue(writeOk)
+
+        val readData = diskBackend.readSectors(diskFile.absolutePath, 10, 1)
+        assertNotNull(readData)
+        assertArrayEquals(testData, readData)
+
+        // Read out of bounds should safely return null
+        val outOfBounds = diskBackend.readSectors(diskFile.absolutePath, 5000, 1)
+        assertNull(outOfBounds)
+
+        diskFile.delete()
+    }
 }

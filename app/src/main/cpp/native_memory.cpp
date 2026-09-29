@@ -76,6 +76,21 @@ void NativeMemory::write8(uint64_t address, uint8_t value) {
     }
 }
 
+uint16_t NativeMemory::read16(uint64_t address) const {
+    if (!isValidAddress(address, 2)) {
+        return 0;
+    }
+    uint16_t val;
+    std::memcpy(&val, &ramBuffer[address], sizeof(uint16_t));
+    return val;
+}
+
+void NativeMemory::write16(uint64_t address, uint16_t value) {
+    if (isValidAddress(address, 2)) {
+        std::memcpy(&ramBuffer[address], &value, sizeof(uint16_t));
+    }
+}
+
 uint32_t NativeMemory::read32(uint64_t address) const {
     if (!isValidAddress(address, 4)) {
         return 0;

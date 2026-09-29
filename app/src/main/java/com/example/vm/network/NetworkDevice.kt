@@ -4,7 +4,6 @@ import com.example.vm.devices.VirtualDevice
 
 /**
  * Legacy NetworkDevice interface, wrapping the real VirtualNetworkDevice.
- * Fake packet counters have been removed.
  */
 interface NetworkDevice : VirtualDevice {
     val isImplemented: Boolean
@@ -32,9 +31,9 @@ class VirtualEthernetDevice(
 
     override fun isConnected(): Boolean = virtualNetworkDevice.backend.isLinkUp()
 
-    override fun getTxBytes(): Long = 0L
+    override fun getTxBytes(): Long = virtualNetworkDevice.backend.txBytes
 
-    override fun getRxBytes(): Long = 0L
+    override fun getRxBytes(): Long = virtualNetworkDevice.backend.rxBytes
 
     override fun getDeviceName(): String = virtualNetworkDevice.getDeviceName()
 

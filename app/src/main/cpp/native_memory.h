@@ -22,6 +22,9 @@ public:
     uint8_t read8(uint64_t address) const;
     void write8(uint64_t address, uint8_t value);
 
+    uint16_t read16(uint64_t address) const;
+    void write16(uint64_t address, uint16_t value);
+
     uint32_t read32(uint64_t address) const;
     void write32(uint64_t address, uint32_t value);
 

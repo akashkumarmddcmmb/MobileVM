@@ -468,7 +468,7 @@ void NativeCPUARM64::reportUnsupportedInstruction(uint32_t inst, NativeDeviceMan
     lastFaultPC = pc;
     lastFaultOpcode = inst;
 
-    char buf[512];
+    char buf[1024];
     std::snprintf(buf, sizeof(buf),
         "\r\n=== ARM64 CPU TRAP: Unsupported Instruction ===\r\n"
         "PC: 0x%016llX  Opcode: 0x%08X  EL: %u  SP: 0x%016llX\r\n"
@@ -894,6 +894,175 @@ NativeCPUState NativeCPUARM64::step(NativeMemory& memory, NativeDeviceManager& d
 
         uint64_t res = isSub ? (opC - (opA * opB)) : (opC + (opA * opB));
         setRegister(rd, is64 ? res : (res & 0xFFFFFFFFULL));
+        pc += 4;
+        return state;
+    }
+
+    // Data-processing (2 source): UDIV, SDIV, LSLV, LSRV, ASRV, RORV (0x1AC00000 / 0x9AC00000)
+    if ((inst & 0x5FE00000) == 0x1AC00000) {
+        bool is64 = (inst & (1u << 31)) != 0;
+        uint32_t rm = (inst >> 16) & 0x1F;
+        uint32_t opcode = (inst >> 10) & 0x3F;
+        uint32_t rn = (inst >> 5) & 0x1F;
+        uint32_t rd = inst & 0x1F;
+
+        uint64_t opA = getRegister(rn);
+        uint64_t opB = getRegister(rm);
+        uint64_t res = 0;
+        uint32_t width = is64 ? 64 : 32;
+
+        if (opcode == 2) { // UDIV
+            if (!is64) { opA &= 0xFFFFFFFFULL; opB &= 0xFFFFFFFFULL; }
+            res = (opB == 0) ? 0 : (opA / opB);
+        } else if (opcode == 3) { // SDIV
+            if (is64) {
+                int64_t sA = static_cast<int64_t>(opA);
+                int64_t sB = static_cast<int64_t>(opB);
+                res = (sB == 0) ? 0 : static_cast<uint64_t>(sA / sB);
+            } else {
+                int32_t sA = static_cast<int32_t>(opA);
+                int32_t sB = static_cast<int32_t>(opB);
+                res = (sB == 0) ? 0 : static_cast<uint64_t>(static_cast<uint32_t>(sA / sB));
+            }
+        } else if (opcode == 8) { // LSLV
+            uint32_t shift = opB % width;
+            res = is64 ? (opA << shift) : ((opA & 0xFFFFFFFFULL) << shift);
+        } else if (opcode == 9) { // LSRV
+            uint32_t shift = opB % width;
+            res = is64 ? (opA >> shift) : ((opA & 0xFFFFFFFFULL) >> shift);
+        } else if (opcode == 10) { // ASRV
+            uint32_t shift = opB % width;
+            res = is64 ? static_cast<uint64_t>(static_cast<int64_t>(opA) >> shift)
+                       : static_cast<uint64_t>(static_cast<uint32_t>(static_cast<int32_t>(opA) >> shift));
+        } else if (opcode == 11) { // RORV
+            uint32_t shift = opB % width;
+            if (is64) {
+                res = (shift == 0) ? opA : ((opA >> shift) | (opA << (64 - shift)));
+            } else {
+                uint32_t v32 = static_cast<uint32_t>(opA);
+                res = (shift == 0) ? v32 : ((v32 >> shift) | (v32 << (32 - shift)));
+            }
+        }
+
+        setRegister(rd, is64 ? res : (res & 0xFFFFFFFFULL));
+        pc += 4;
+        return state;
+    }
+
+    // Data-processing (1 source): RBIT, REV16, REV, REV64, CLZ (0x5AC00000)
+    if ((inst & 0x5FE00000) == 0x5AC00000) {
+        bool is64 = (inst & (1u << 31)) != 0;
+        uint32_t opcode = (inst >> 10) & 0x3F;
+        uint32_t rn = (inst >> 5) & 0x1F;
+        uint32_t rd = inst & 0x1F;
+        uint64_t val = getRegister(rn);
+        uint64_t res = 0;
+
+        if (opcode == 0) { // RBIT (Reverse Bits)
+            if (is64) {
+                for (int i = 0; i < 64; ++i) if ((val >> i) & 1) res |= (1ULL << (63 - i));
+            } else {
+                uint32_t v32 = static_cast<uint32_t>(val);
+                for (int i = 0; i < 32; ++i) if ((v32 >> i) & 1) res |= (1u << (31 - i));
+            }
+        } else if (opcode == 1) { // REV16
+            res = ((val & 0xFF00FF00FF00FF00ULL) >> 8) | ((val & 0x00FF00FF00FF00FFULL) << 8);
+        } else if (opcode == 2) { // REV / REV32
+            uint64_t w1 = __builtin_bswap32(static_cast<uint32_t>(val));
+            uint64_t w2 = __builtin_bswap32(static_cast<uint32_t>(val >> 32));
+            res = is64 ? ((w1 << 32) | w2) : w1;
+        } else if (opcode == 4) { // CLZ (Count Leading Zeros)
+            if (is64) {
+                res = (val == 0) ? 64 : __builtin_clzll(val);
+            } else {
+                uint32_t v32 = static_cast<uint32_t>(val);
+                res = (v32 == 0) ? 32 : __builtin_clz(v32);
+            }
+        }
+
+        setRegister(rd, is64 ? res : (res & 0xFFFFFFFFULL));
+        pc += 4;
+        return state;
+    }
+
+    // Bitfield operations: SBFM, BFM, UBFM (0x13000000 / 0x53000000 / 0x93000000)
+    if ((inst & 0x1F800000) == 0x13000000) {
+        bool is64 = (inst & (1u << 31)) != 0;
+        uint32_t opc = (inst >> 29) & 3;
+        uint32_t immr = (inst >> 16) & 0x3F;
+        uint32_t imms = (inst >> 10) & 0x3F;
+        uint32_t rn = (inst >> 5) & 0x1F;
+        uint32_t rd = inst & 0x1F;
+        uint64_t src = getRegister(rn);
+        uint32_t width = is64 ? 64 : 32;
+
+        if (opc == 2) { // UBFM (UBFX, LSL, LSR)
+            uint64_t res = 0;
+            if (imms >= immr) {
+                uint64_t mask = (imms - immr + 1 == 64) ? ~0ULL : ((1ULL << (imms - immr + 1)) - 1);
+                res = (src >> immr) & mask;
+            } else {
+                uint64_t mask = (imms + 1 == 64) ? ~0ULL : ((1ULL << (imms + 1)) - 1);
+                res = (src & mask) << (width - immr);
+            }
+            setRegister(rd, is64 ? res : (res & 0xFFFFFFFFULL));
+            pc += 4;
+            return state;
+        } else if (opc == 0) { // SBFM (SBFX, ASR, SXTB, SXTH, SXTW)
+            uint64_t res = 0;
+            if (imms >= immr) {
+                uint32_t len = imms - immr + 1;
+                uint64_t val = (src >> immr);
+                if (val & (1ULL << (len - 1))) {
+                    uint64_t signMask = (len == 64) ? 0ULL : (~0ULL << len);
+                    res = val | signMask;
+                } else {
+                    uint64_t mask = (len == 64) ? ~0ULL : ((1ULL << len) - 1);
+                    res = val & mask;
+                }
+            } else {
+                res = src << (width - immr);
+            }
+            setRegister(rd, is64 ? res : (res & 0xFFFFFFFFULL));
+            pc += 4;
+            return state;
+        }
+    }
+
+    // Load / Store Exclusive: LDXR, STXR (0x08000000 / 0x88000000 / 0xC8000000)
+    if ((inst & 0x3F000000) == 0x08000000) {
+        uint32_t size = (inst >> 30) & 3;
+        bool isLoad = (inst & (1u << 22)) != 0;
+        uint32_t rs = (inst >> 16) & 0x1F;
+        uint32_t rn = (inst >> 5) & 0x1F;
+        uint32_t rt = inst & 0x1F;
+        uint64_t addr = (rn == 31) ? getSP() : getRegister(rn);
+
+        if (isLoad) { // LDXR
+            exclusiveAddress = addr;
+            exclusiveActive = true;
+            if (size == 3) {
+                uint64_t v = 0;
+                if (!readMemory64(addr, v, memory, devices)) return state;
+                setRegister(rt, v);
+            } else {
+                uint32_t v = 0;
+                if (!readMemory32(addr, v, memory, devices)) return state;
+                setRegister(rt, v);
+            }
+        } else { // STXR
+            if (exclusiveActive && exclusiveAddress == addr) {
+                if (size == 3) {
+                    if (!writeMemory64(addr, getRegister(rt), memory, devices)) return state;
+                } else {
+                    if (!writeMemory32(addr, static_cast<uint32_t>(getRegister(rt) & 0xFFFFFFFFULL), memory, devices)) return state;
+                }
+                setRegister(rs, 0); // 0 = Success
+                exclusiveActive = false;
+            } else {
+                setRegister(rs, 1); // 1 = Failed
+            }
+        }
         pc += 4;
         return state;
     }

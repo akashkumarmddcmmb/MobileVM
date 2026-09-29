@@ -2,6 +2,7 @@ package com.example.vm.display
 
 import android.graphics.Bitmap
 import android.graphics.Color
+import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -100,4 +101,22 @@ class Framebuffer(
     }
 
     fun getPixelArray(): IntArray = pixelArray
+
+    /**
+     * Captures the current guest scanout bitmap directly to a PNG file,
+     * ensuring no host Android UI elements are included.
+     */
+    @Synchronized
+    fun takeScreenshot(outputFile: File): Boolean {
+        return try {
+            outputFile.parentFile?.mkdirs()
+            val bitmap = asBitmap()
+            java.io.FileOutputStream(outputFile).use { fos ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos)
+            }
+            outputFile.exists() && outputFile.length() > 0
+        } catch (e: Exception) {
+            false
+        }
+    }
 }

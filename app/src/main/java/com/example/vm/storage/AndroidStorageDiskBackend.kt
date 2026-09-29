@@ -13,6 +13,9 @@ class AndroidStorageDiskBackend(private val context: Context) : DiskBackend {
     companion object {
         private const val TAG = "DiskBackend"
         const val SECTOR_SIZE = 512
+        const val EFI_SYSTEM_PARTITION_GUID = "C12A7328-F81F-11D2-BA4B-00A0C93EC93B"
+        const val LINUX_DATA_PARTITION_GUID = "0FC63DAF-8483-4772-8E79-3D69D8477DE4"
+        const val WINDOWS_DATA_PARTITION_GUID = "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7"
     }
 
     data class PartitionEntry(
@@ -30,6 +33,45 @@ class AndroidStorageDiskBackend(private val context: Context) : DiskBackend {
         val totalSectors: Long,
         val totalCapacityGb: Double,
         val partitions: List<PartitionEntry>
+    )
+
+    data class GptPartitionEntry(
+        val partitionNumber: Int,
+        val partitionName: String,
+        val typeGuid: String,
+        val typeDescription: String,
+        val isEfiSystemPartition: Boolean,
+        val isBootable: Boolean,
+        val startLba: Long,
+        val endLba: Long,
+        val sectorCount: Long,
+        val sizeMb: Long
+    )
+
+    data class GPTInfo(
+        val isValidSignature: Boolean,
+        val diskGuid: String,
+        val firstUsableLba: Long,
+        val lastUsableLba: Long,
+        val totalSectors: Long,
+        val totalCapacityGb: Double,
+        val partitions: List<GptPartitionEntry>
+    )
+
+    enum class PartitionTableType {
+        MBR,
+        GPT,
+        RAW_UNPARTITIONED,
+        INVALID
+    }
+
+    data class PartitionSchemeInfo(
+        val scheme: PartitionTableType,
+        val isEfiBootable: Boolean,
+        val isLegacyBootable: Boolean,
+        val description: String,
+        val mbrInfo: MBRInfo?,
+        val gptInfo: GPTInfo?
     )
 
     fun getAuthorizedDisksDirectory(): File {
@@ -327,6 +369,168 @@ class AndroidStorageDiskBackend(private val context: Context) : DiskBackend {
             totalSectors = totalSectors,
             totalCapacityGb = totalGb,
             partitions = partitions
+        )
+    }
+
+    /**
+     * Inspects GUID Partition Table (GPT) starting at LBA 1 (Primary Header)
+     * and parses partition entries to detect EFI System Partitions and Linux data partitions.
+     */
+    fun inspectGPT(diskPath: String): GPTInfo? {
+        // Read LBA 1 (GPT Header)
+        val headerBytes = readSectors(diskPath, 1, 1) ?: return null
+        if (headerBytes.size < 512) return null
+
+        // Check "EFI PART" signature: 0x5452415020494645ULL
+        val sig = String(headerBytes, 0, 8, Charsets.US_ASCII)
+        if (sig != "EFI PART") return null
+
+        val buf = ByteBuffer.wrap(headerBytes).order(ByteOrder.LITTLE_ENDIAN)
+        val myLba = buf.getLong(24)
+        val firstUsable = buf.getLong(40)
+        val lastUsable = buf.getLong(48)
+        val partEntryLba = buf.getLong(72)
+        val numEntries = buf.getInt(80)
+        val entrySize = buf.getInt(84)
+
+        if (numEntries <= 0 || entrySize < 128) return null
+
+        val file = File(diskPath)
+        val totalSectors = if (file.exists()) file.length() / SECTOR_SIZE else 0L
+        val totalGb = file.length().toDouble() / (1024.0 * 1024.0 * 1024.0)
+
+        // Read partition table entries (typically starting at LBA 2)
+        val entriesToRead = minOf(numEntries, 128)
+        val sectorsNeeded = ((entriesToRead * entrySize) + SECTOR_SIZE - 1) / SECTOR_SIZE
+        val entryTableBytes = readSectors(diskPath, partEntryLba, sectorsNeeded)
+
+        val partitions = mutableListOf<GptPartitionEntry>()
+
+        if (entryTableBytes != null) {
+            val entryBuf = ByteBuffer.wrap(entryTableBytes).order(ByteOrder.LITTLE_ENDIAN)
+            for (i in 0 until entriesToRead) {
+                val offset = i * entrySize
+                if (offset + 128 > entryTableBytes.size) break
+
+                // Format Type GUID
+                val d1 = entryBuf.getInt(offset)
+                val d2 = entryBuf.getShort(offset + 4)
+                val d3 = entryBuf.getShort(offset + 6)
+                val guidBytes = ByteArray(8)
+                System.arraycopy(entryTableBytes, offset + 8, guidBytes, 0, 8)
+                val isZeroGuid = (d1 == 0 && d2 == 0.toShort() && d3 == 0.toShort() && guidBytes.all { it == 0.toByte() })
+                if (isZeroGuid) continue
+
+                val typeGuid = String.format(
+                    java.util.Locale.US,
+                    "%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X",
+                    d1, d2, d3,
+                    guidBytes[0], guidBytes[1],
+                    guidBytes[2], guidBytes[3], guidBytes[4], guidBytes[5], guidBytes[6], guidBytes[7]
+                )
+
+                val startLba = entryBuf.getLong(offset + 32)
+                val endLba = entryBuf.getLong(offset + 40)
+                val attributes = entryBuf.getLong(offset + 48)
+                val sectorCount = if (endLba >= startLba) (endLba - startLba + 1) else 0L
+                val sizeMb = (sectorCount * SECTOR_SIZE) / (1024 * 1024)
+
+                // Read UTF-16LE Partition Name (up to 36 chars / 72 bytes)
+                val nameBytes = ByteArray(72)
+                System.arraycopy(entryTableBytes, offset + 56, nameBytes, 0, 72)
+                val partName = String(nameBytes, Charsets.UTF_16LE).trimEnd { it == '\u0000' }
+
+                val isEsp = typeGuid.equals(EFI_SYSTEM_PARTITION_GUID, ignoreCase = true)
+                val isLinux = typeGuid.equals(LINUX_DATA_PARTITION_GUID, ignoreCase = true)
+                val isWin = typeGuid.equals(WINDOWS_DATA_PARTITION_GUID, ignoreCase = true)
+
+                val typeDesc = when {
+                    isEsp -> "EFI System Partition (ESP)"
+                    isLinux -> "Linux Filesystem Data"
+                    isWin -> "Microsoft Basic Data (NTFS/FAT)"
+                    else -> "GPT Partition ($typeGuid)"
+                }
+
+                partitions.add(
+                    GptPartitionEntry(
+                        partitionNumber = i + 1,
+                        partitionName = partName,
+                        typeGuid = typeGuid,
+                        typeDescription = typeDesc,
+                        isEfiSystemPartition = isEsp,
+                        isBootable = isEsp || ((attributes and 4L) != 0L),
+                        startLba = startLba,
+                        endLba = endLba,
+                        sectorCount = sectorCount,
+                        sizeMb = sizeMb
+                    )
+                )
+            }
+        }
+
+        return GPTInfo(
+            isValidSignature = true,
+            diskGuid = "",
+            firstUsableLba = firstUsable,
+            lastUsableLba = lastUsable,
+            totalSectors = totalSectors,
+            totalCapacityGb = totalGb,
+            partitions = partitions
+        )
+    }
+
+    /**
+     * Determines whether a virtual disk image uses MBR, GPT, or is a raw unpartitioned filesystem.
+     */
+    fun detectPartitionScheme(diskPath: String): PartitionSchemeInfo {
+        val gpt = inspectGPT(diskPath)
+        if (gpt != null && gpt.isValidSignature) {
+            val hasEsp = gpt.partitions.any { it.isEfiSystemPartition }
+            val hasBootable = gpt.partitions.any { it.isBootable }
+            return PartitionSchemeInfo(
+                scheme = PartitionTableType.GPT,
+                isEfiBootable = hasEsp,
+                isLegacyBootable = hasBootable,
+                description = "GPT (GUID Partition Table) • ${gpt.partitions.size} partitions" + (if (hasEsp) " [ESP Present]" else ""),
+                mbrInfo = null,
+                gptInfo = gpt
+            )
+        }
+
+        val mbr = inspectMBR(diskPath)
+        if (mbr != null && mbr.isValidSignature) {
+            // Check if MBR is a protective MBR for GPT (partition type 0xEE)
+            val isProtective = mbr.partitions.any { it.typeHex.equals("0xEE", ignoreCase = true) }
+            if (isProtective) {
+                return PartitionSchemeInfo(
+                    scheme = PartitionTableType.GPT,
+                    isEfiBootable = false,
+                    isLegacyBootable = false,
+                    description = "GPT Protective MBR",
+                    mbrInfo = mbr,
+                    gptInfo = null
+                )
+            }
+
+            val hasBootable = mbr.partitions.any { it.bootable }
+            val hasEsp = mbr.partitions.any { it.typeHex.equals("0xEF", ignoreCase = true) }
+            return PartitionSchemeInfo(
+                scheme = PartitionTableType.MBR,
+                isEfiBootable = hasEsp,
+                isLegacyBootable = hasBootable,
+                description = "MBR (Master Boot Record) • ${mbr.partitions.size} primary partitions" + (if (hasBootable) " [Active Boot]" else ""),
+                mbrInfo = mbr,
+                gptInfo = null
+            )
+        }
+
+        return PartitionSchemeInfo(
+            scheme = PartitionTableType.RAW_UNPARTITIONED,
+            isEfiBootable = false,
+            isLegacyBootable = false,
+            description = "RAW Unpartitioned Filesystem / Disk Image",
+            mbrInfo = null,
+            gptInfo = null
         )
     }
 }

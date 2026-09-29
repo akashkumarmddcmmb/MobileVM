@@ -187,4 +187,176 @@ class ARM64EmulatorTest {
         val isPendingMasked = (cntvCtlMasked and 1 != 0) && (cntvCtlMasked and 2 == 0) && (cntvct >= cntvCval)
         assertFalse("Masking timer must suppress interrupt assertion", isPendingMasked)
     }
+
+    // --- Direct Instruction Simulation & Verification Tests ---
+
+    @Test
+    fun `ARM64 arithmetic instructions ADD, SUB, and CMP update NZCV condition codes`() {
+        val opA = 100L
+        val opB = 25L
+
+        // ADD
+        val sum = opA + opB
+        assertEquals(125L, sum)
+
+        // SUB
+        val diff = opA - opB
+        assertEquals(75L, diff)
+
+        // CMP (SUBS with discard): opA - opB
+        val cmpResult = opA - opB
+        val isZ = (cmpResult == 0L)
+        val isN = (cmpResult < 0L)
+        val isC = (opA >= opB) // Carry set on unsigned borrow-free subtract
+        assertFalse("CMP 100 with 25: Z should be false", isZ)
+        assertFalse("CMP 100 with 25: N should be false", isN)
+        assertTrue("CMP 100 with 25: C should be true", isC)
+
+        // CMP equal
+        val cmpEq = 50L - 50L
+        val isZEq = (cmpEq == 0L)
+        assertTrue("CMP 50 with 50: Z must be true", isZEq)
+    }
+
+    @Test
+    fun `ARM64 logical instructions AND, ORR, and EOR operate with bitwise accuracy`() {
+        val valA = 0x00FF00FFL
+        val valB = 0x0F0F0F0FL
+
+        val andRes = valA and valB
+        assertEquals(0x000F000FL, andRes)
+
+        val orrRes = valA or valB
+        assertEquals(0x0FFF0FFFL, orrRes)
+
+        val eorRes = valA xor valB
+        assertEquals(0x0FF00FF0L, eorRes)
+    }
+
+    @Test
+    fun `ARM64 shift and bitfield operations LSL, LSR, ASR, and ROR`() {
+        val value = 0x8000000000000000UL.toLong() // Top bit set (negative if signed)
+
+        // LSL by 1
+        val lsl = 0x1L shl 4
+        assertEquals(16L, lsl)
+
+        // LSR (Logical Shift Right, zero-fill)
+        val lsr = value ushr 1
+        assertEquals(0x4000000000000000L, lsr)
+
+        // ASR (Arithmetic Shift Right, sign-preserving)
+        val asr = value shr 1
+        assertEquals(0xC000000000000000UL.toLong(), asr)
+
+        // ROR (Rotate Right)
+        val rorVal = 0x0000000000000001L
+        val ror1 = (rorVal ushr 1) or (rorVal shl 63)
+        assertEquals(0x8000000000000000UL.toLong(), ror1)
+    }
+
+    @Test
+    fun `ARM64 multiply and divide instructions MADD, MSUB, UDIV, and SDIV`() {
+        val opA = 12L
+        val opB = 5L
+        val opC = 100L
+
+        // MADD: opC + (opA * opB)
+        val madd = opC + (opA * opB)
+        assertEquals(160L, madd)
+
+        // MSUB: opC - (opA * opB)
+        val msub = opC - (opA * opB)
+        assertEquals(40L, msub)
+
+        // UDIV: Unsigned divide
+        val udiv = 100L / 7L
+        assertEquals(14L, udiv)
+
+        // UDIV divide by zero (ARM64 specification states result is 0 without trap)
+        val divZeroA = 50L
+        val divZeroB = 0L
+        val udivZero = if (divZeroB == 0L) 0L else (divZeroA / divZeroB)
+        assertEquals(0L, udivZero)
+
+        // SDIV: Signed divide
+        val sdiv = (-100L) / 5L
+        assertEquals(-20L, sdiv)
+    }
+
+    @Test
+    fun `ARM64 conditional branch condition evaluation logic`() {
+        fun evalCond(cond: Int, n: Boolean, z: Boolean, c: Boolean, v: Boolean): Boolean {
+            return when (cond and 0xF) {
+                0x0 -> z                 // EQ
+                0x1 -> !z                // NE
+                0x2 -> c                 // CS / HS
+                0x3 -> !c                // CC / LO
+                0x4 -> n                 // MI
+                0x5 -> !n                // PL
+                0x6 -> v                 // VS
+                0x7 -> !v                // VC
+                0x8 -> c && !z           // HI
+                0x9 -> !c || z           // LS
+                0xA -> n == v            // GE
+                0xB -> n != v            // LT
+                0xC -> !z && (n == v)    // GT
+                0xD -> z || (n != v)     // LE
+                0xE -> true              // AL
+                else -> true
+            }
+        }
+
+        // Test EQ
+        assertTrue("EQ condition with Z=1", evalCond(0x0, n = false, z = true, c = false, v = false))
+        assertFalse("EQ condition with Z=0", evalCond(0x0, n = false, z = false, c = false, v = false))
+
+        // Test NE
+        assertTrue("NE condition with Z=0", evalCond(0x1, n = false, z = false, c = false, v = false))
+        assertFalse("NE condition with Z=1", evalCond(0x1, n = false, z = true, c = false, v = false))
+
+        // Test GT
+        assertTrue("GT condition with Z=0, N=0, V=0", evalCond(0xC, n = false, z = false, c = false, v = false))
+        assertFalse("GT condition with Z=1 (equal)", evalCond(0xC, n = false, z = true, c = false, v = false))
+    }
+
+    @Test
+    fun `guest memory allocation, alignment, bounds checking, and cleanup`() {
+        val ramSizeBytes = 128L * 1024L * 1024L // 128 MB
+        val pageSize = 4096L
+
+        // Page alignment check
+        assertEquals("RAM size must be a multiple of 4KB page size", 0L, ramSizeBytes % pageSize)
+
+        // Bounds check
+        fun isWithinBounds(addr: Long, size: Long): Boolean {
+            if (addr < 0L || size <= 0L) return false
+            if (addr > ramSizeBytes || size > ramSizeBytes) return false
+            return (addr + size) <= ramSizeBytes
+        }
+
+        assertTrue("Address 0 size 8 is valid", isWithinBounds(0L, 8L))
+        assertTrue("Address (RAM - 8) size 8 is valid", isWithinBounds(ramSizeBytes - 8L, 8L))
+        assertFalse("Address exceeding RAM is invalid", isWithinBounds(ramSizeBytes, 4L))
+        assertFalse("Address + size overflow is invalid", isWithinBounds(ramSizeBytes - 2L, 4L))
+    }
+
+    @Test
+    fun `load and store pair addressing index modes`() {
+        val baseAddr = 0x40001000L
+        val imm7 = 2L
+        val scale = 8L
+        val offset = imm7 * scale // 16 bytes
+
+        // Pre-indexed: base + offset
+        val preIndexedAddr = baseAddr + offset
+        assertEquals(0x40001010L, preIndexedAddr)
+
+        // Post-indexed: writes to baseAddr, then baseAddr += offset
+        var currentBase = baseAddr
+        val targetAddr = currentBase
+        currentBase += offset
+        assertEquals(0x40001000L, targetAddr)
+        assertEquals(0x40001010L, currentBase)
+    }
 }

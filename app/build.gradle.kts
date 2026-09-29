@@ -23,15 +23,20 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
-  signingConfigs {
-    create("release") {
-      val keystorePath =
-        System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
+  val keystoreEnv = System.getenv("KEYSTORE_PATH")
+  val storeFileTarget = if (!keystoreEnv.isNullOrBlank()) file(keystoreEnv) else file("${rootDir}/my-upload-key.jks")
+  val hasReleaseSigning = storeFileTarget.exists() &&
+    !System.getenv("STORE_PASSWORD").isNullOrBlank() &&
+    !System.getenv("KEY_PASSWORD").isNullOrBlank()
 
-      storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD")
+  signingConfigs {
+    if (hasReleaseSigning) {
+      create("release") {
+        storeFile = storeFileTarget
+        storePassword = System.getenv("STORE_PASSWORD")
+        keyAlias = System.getenv("KEY_ALIAS") ?: "upload"
+        keyPassword = System.getenv("KEY_PASSWORD")
+      }
     }
   }
 
@@ -45,7 +50,9 @@ android {
         "proguard-rules.pro"
       )
 
-      signingConfig = signingConfigs.getByName("release")
+      if (hasReleaseSigning) {
+        signingConfig = signingConfigs.getByName("release")
+      }
     }
 
     debug {
