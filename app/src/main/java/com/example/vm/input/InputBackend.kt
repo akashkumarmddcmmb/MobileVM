@@ -25,9 +25,9 @@ class AndroidInputBackend(
     override val virtualInputDevice: VirtualInputDevice = VirtualInputDevice(1024, 768)
 ) : InputBackend {
 
-    override val touchInput: TouchInput = TouchInput(virtualInputDevice)
-    override val keyboardInput: KeyboardInput = KeyboardInput(virtualInputDevice)
     override val mouseInput: MouseInput = MouseInput(virtualInputDevice)
+    override val touchInput: TouchInput = TouchInput(virtualInputDevice, mouseInput)
+    override val keyboardInput: KeyboardInput = KeyboardInput(virtualInputDevice)
 
     override fun postTouchEvent(event: TouchInputEvent) {
         touchInput.processTouchEvent(event)
