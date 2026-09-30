@@ -539,4 +539,39 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeGetInputEventCount(
     return static_cast<jlong>(engine->getDevices().getInput().getTotalEventsProcessed());
 }
 
+JNIEXPORT jbyteArray JNICALL
+Java_com_example_vm_nativebridge_NativeVMBinding_nativeFetchAudioPcm(
+    JNIEnv* env,
+    jobject /* this */,
+    jlong handle) {
+    NativeVMEngine* engine = getValidEngine(handle);
+    if (!engine) return nullptr;
+    auto pcmBuf = engine->getDevices().getAudio().fetchPcmBuffer();
+    if (pcmBuf.empty()) return nullptr;
+
+    jbyteArray arr = env->NewByteArray(static_cast<jsize>(pcmBuf.size()));
+    if (arr) {
+        env->SetByteArrayRegion(arr, 0, static_cast<jsize>(pcmBuf.size()), reinterpret_cast<const jbyte*>(pcmBuf.data()));
+    }
+    return arr;
+}
+
+JNIEXPORT void JNICALL
+Java_com_example_vm_nativebridge_NativeVMBinding_nativeWriteAudioPcm(
+    JNIEnv* env,
+    jobject /* this */,
+    jlong handle,
+    jbyteArray pcmData) {
+    NativeVMEngine* engine = getValidEngine(handle);
+    if (!engine || !pcmData) return;
+    jsize len = env->GetArrayLength(pcmData);
+    if (len <= 0) return;
+
+    jbyte* bytes = env->GetByteArrayElements(pcmData, nullptr);
+    if (bytes) {
+        engine->getDevices().getAudio().pushPcmBytes(reinterpret_cast<const uint8_t*>(bytes), static_cast<size_t>(len));
+        env->ReleaseByteArrayElements(pcmData, bytes, JNI_ABORT);
+    }
+}
+
 } // extern "C"

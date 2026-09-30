@@ -12,10 +12,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.vm.storage.*
@@ -58,9 +60,9 @@ fun VMStorageManagerScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(16.dp)
+                .padding(12.dp)
         ) {
-            // Top Overview Cards: Host Free Space & Metrics
+            // Top Overview Cards: Compact Host Free Space & Metrics
             val totalBytes = remember { viewModel.storageManager.getTotalHostStorageBytes() }
             val availBytes = remember { viewModel.storageManager.getAvailableHostStorageBytes() }
             val usedBytes = totalBytes - availBytes
@@ -70,73 +72,113 @@ fun VMStorageManagerScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 16.dp)
+                    .padding(bottom = 12.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Storage, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Host Device Sandbox Storage", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f, fill = false)
+                        ) {
+                            Icon(
+                                Icons.Default.Storage,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                "Host Device Sandbox Storage",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
-                        Text("$usedPercent% Used", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(
+                                text = "$usedPercent% Used",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                maxLines = 1
+                            )
+                        }
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     LinearProgressIndicator(
                         progress = { usedPercent / 100f },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(8.dp),
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp)),
                         color = MaterialTheme.colorScheme.primary,
                         trackColor = MaterialTheme.colorScheme.surfaceVariant
                     )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Available: ${availBytes / (1024 * 1024 * 1024)} GB", fontSize = 12.sp)
-                        Text("Total Sandbox: ${totalBytes / (1024 * 1024 * 1024)} GB", fontSize = 12.sp)
+                        Text(
+                            "Available: ${availBytes / (1024 * 1024 * 1024)} GB",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                        )
+                        Text(
+                            "Total Sandbox: ${totalBytes / (1024 * 1024 * 1024)} GB",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                        )
                     }
                 }
             }
 
-            // Tab Selector: Disks / Snapshots / Backups / Audit Logs
-            TabRow(selectedTabIndex = activeTab) {
+            // Tab Selector: Scrollable Disks / Snapshots / Backups / Shared Folders / Audit Logs
+            ScrollableTabRow(
+                selectedTabIndex = activeTab,
+                edgePadding = 4.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Tab(
                     selected = activeTab == 0,
                     onClick = { activeTab = 0 },
-                    text = { Text("Virtual Disks (${disks.size})") },
+                    text = { Text("Virtual Disks (${disks.size})", maxLines = 1, fontSize = 13.sp) },
                     modifier = Modifier.testTag("storage_tab_disks")
                 )
                 Tab(
                     selected = activeTab == 1,
                     onClick = { activeTab = 1 },
-                    text = { Text("Snapshots (${snapshots.size})") },
+                    text = { Text("Snapshots (${snapshots.size})", maxLines = 1, fontSize = 13.sp) },
                     modifier = Modifier.testTag("storage_tab_snapshots")
                 )
                 Tab(
                     selected = activeTab == 2,
                     onClick = { activeTab = 2 },
-                    text = { Text("Backups (${backups.size})") },
+                    text = { Text("Backups (${backups.size})", maxLines = 1, fontSize = 13.sp) },
                     modifier = Modifier.testTag("storage_tab_backups")
                 )
                 Tab(
                     selected = activeTab == 3,
                     onClick = { activeTab = 3 },
-                    text = { Text("Shared Folders") },
+                    text = { Text("Shared Folders", maxLines = 1, fontSize = 13.sp) },
                     modifier = Modifier.testTag("storage_tab_shared")
                 )
                 Tab(
                     selected = activeTab == 4,
                     onClick = { activeTab = 4 },
-                    text = { Text("Audit Log") },
+                    text = { Text("Audit Log", maxLines = 1, fontSize = 13.sp) },
                     modifier = Modifier.testTag("storage_tab_logs")
                 )
             }

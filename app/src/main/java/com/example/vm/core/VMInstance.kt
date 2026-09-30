@@ -1,6 +1,8 @@
 package com.example.vm.core
 
 import android.content.Context
+import com.example.vm.audio.VMAudioEngine
+import com.example.vm.audio.VirtualAudioDevice
 import com.example.vm.console.UartPL011ConsoleBackend
 import com.example.vm.cpu.CPUBackend
 import com.example.vm.cpu.CPUBackendSelector
@@ -70,6 +72,9 @@ class VMInstance(
     val cpu: CPUBackend = InterpreterArm64CPUBackend()
     val memory: MemoryBackend = HostByteBufferMemoryBackend(config.ramSizeMb)
 
+    val audioEngine = VMAudioEngine(context)
+    val virtualAudioDevice = VirtualAudioDevice(audioEngine)
+
     val displayBackend = VirtioGPUBitmapDisplayBackend()
     val consoleBackend = UartPL011ConsoleBackend()
     val networkDevice = VirtualEthernetDevice()
@@ -81,6 +86,7 @@ class VMInstance(
     private var executionJob: Job? = null
 
     init {
+        deviceManager.registerDevice("audio_0", virtualAudioDevice)
         val resolution = CPUBackendSelector.resolve(
             guestArch = guestArchitecture,
             requestHardwareVirt = config.useHardwareVirtualization,
@@ -166,11 +172,14 @@ class VMInstance(
     fun start(): Boolean {
         if (_state.value != VMState.CONFIGURED && _state.value != VMState.STOPPED && _state.value != VMState.CREATED) return false
 
+        audioEngine.start()
+
         if (nativeHandle != 0L) {
             setVMState(VMState.STARTING)
             val started = NativeVMBinding.nativeStart(nativeHandle)
             if (!started) {
                 setVMState(VMState.ERROR)
+                audioEngine.stop()
                 return false
             }
 
@@ -196,6 +205,11 @@ class VMInstance(
                     val txBytes = NativeVMBinding.nativeFetchSerialTx(nativeHandle)
                     if (txBytes != null && txBytes.isNotEmpty()) {
                         consoleBackend.writeTxBytes(txBytes)
+                    }
+
+                    val pcmBytes = NativeVMBinding.nativeFetchAudioPcm(nativeHandle)
+                    if (pcmBytes != null && pcmBytes.isNotEmpty()) {
+                        audioEngine.writePcmData(pcmBytes)
                     }
 
                     val rawRegs = NativeVMBinding.nativeGetRegisters(nativeHandle)
@@ -249,6 +263,7 @@ class VMInstance(
 
     fun pause(): Boolean {
         if (_state.value == VMState.RUNNING || _state.value == VMState.STARTING) {
+            audioEngine.pause()
             if (nativeHandle != 0L) {
                 NativeVMBinding.nativePause(nativeHandle)
             } else {
@@ -262,6 +277,7 @@ class VMInstance(
 
     fun resume(): Boolean {
         if (_state.value == VMState.PAUSED) {
+            audioEngine.resume()
             if (nativeHandle != 0L) {
                 val ok = NativeVMBinding.nativeResume(nativeHandle)
                 if (!ok) {
@@ -281,6 +297,7 @@ class VMInstance(
 
     fun stop(): Boolean {
         setVMState(VMState.STOPPING)
+        audioEngine.stop()
         if (nativeHandle != 0L) {
             NativeVMBinding.nativeStop(nativeHandle)
         } else {

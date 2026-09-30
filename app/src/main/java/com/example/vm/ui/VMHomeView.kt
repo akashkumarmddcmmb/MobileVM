@@ -48,6 +48,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -213,28 +214,28 @@ fun VMHomeView(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
                     icon = { Icon(Icons.Default.Dashboard, contentDescription = "Dashboard") },
-                    label = { Text("Hypervisor") },
+                    label = { Text("Hypervisor", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 10.sp, softWrap = false) },
                     modifier = Modifier.testTag("nav_tab_dashboard")
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
                     icon = { Icon(Icons.Default.CloudDownload, contentDescription = "Guest OS Center") },
-                    label = { Text("Guest OS") },
+                    label = { Text("Guest OS", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 10.sp, softWrap = false) },
                     modifier = Modifier.testTag("nav_tab_guest_os")
                 )
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
                     icon = { Icon(Icons.Default.Storage, contentDescription = "Storage Manager") },
-                    label = { Text("Storage") },
+                    label = { Text("Storage", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 10.sp, softWrap = false) },
                     modifier = Modifier.testTag("nav_tab_storage")
                 )
                 NavigationBarItem(
                     selected = selectedTab == 3,
                     onClick = { selectedTab = 3 },
                     icon = { Icon(Icons.Default.Terminal, contentDescription = "Terminal") },
-                    label = { Text("Console") },
+                    label = { Text("Console", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 10.sp, softWrap = false) },
                     enabled = activeVM != null,
                     modifier = Modifier.testTag("nav_tab_console")
                 )
@@ -242,14 +243,14 @@ fun VMHomeView(
                     selected = selectedTab == 4,
                     onClick = { selectedTab = 4 },
                     icon = { Icon(Icons.Default.Usb, contentDescription = "USB Devices") },
-                    label = { Text("OTG USB") },
+                    label = { Text("OTG USB", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 10.sp, softWrap = false) },
                     modifier = Modifier.testTag("nav_tab_usb")
                 )
                 NavigationBarItem(
                     selected = selectedTab == 5,
                     onClick = { selectedTab = 5 },
                     icon = { Icon(Icons.Default.BugReport, contentDescription = "Debug & Diagnostics") },
-                    label = { Text("Debug") },
+                    label = { Text("Debug", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 10.sp, softWrap = false) },
                     modifier = Modifier.testTag("nav_tab_debug")
                 )
             }

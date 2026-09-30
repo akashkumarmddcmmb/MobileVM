@@ -50,6 +50,19 @@ private:
     std::vector<uint32_t> framebuffer;
 };
 
+class NativeAudioDevice {
+public:
+    NativeAudioDevice();
+    void pushPcmBytes(const uint8_t* data, size_t size);
+    std::vector<uint8_t> fetchPcmBuffer();
+    bool hasPcmData();
+    void reset();
+
+private:
+    std::mutex audioMutex;
+    std::vector<uint8_t> pcmBuffer;
+};
+
 class NativeMemory; // Forward declaration
 
 class NativeDeviceManager {
@@ -73,6 +86,8 @@ public:
     const NativeInputDevice& getInput() const { return inputDevice; }
     NativeGIC& getGIC() { return gic; }
     const NativeGIC& getGIC() const { return gic; }
+    NativeAudioDevice& getAudio() { return audioDevice; }
+    const NativeAudioDevice& getAudio() const { return audioDevice; }
 
     NativePowerEvent pollPowerEvent();
     void resetAll();
@@ -85,6 +100,7 @@ private:
     NativeDisk disk;
     NativeInputDevice inputDevice;
     NativeGIC gic;
+    NativeAudioDevice audioDevice;
     NativePowerEvent powerEvent;
     std::mutex deviceMutex;
 

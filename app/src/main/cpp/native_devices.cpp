@@ -271,6 +271,17 @@ bool NativeDeviceManager::handleMMIOWrite32(uint64_t address, uint32_t value, Na
         return true;
     }
 
+    // Virtual Sound MMIO range: 0x10007000 to 0x10007020
+    if (address >= 0x10007000ULL && address < 0x10007020ULL) {
+        uint8_t pcmSample[4];
+        pcmSample[0] = static_cast<uint8_t>(value & 0xFF);
+        pcmSample[1] = static_cast<uint8_t>((value >> 8) & 0xFF);
+        pcmSample[2] = static_cast<uint8_t>((value >> 16) & 0xFF);
+        pcmSample[3] = static_cast<uint8_t>((value >> 24) & 0xFF);
+        audioDevice.pushPcmBytes(pcmSample, 4);
+        return true;
+    }
+
     // VirtIO Block MMIO range: 0x0A000000 to 0x0A000200
     if (address >= 0x0A000000ULL && address < 0x0A000200ULL) {
         uint64_t reg = address - 0x0A000000ULL;
@@ -490,6 +501,32 @@ uint32_t NativeDeviceManager::handleMMIORead32(uint64_t address) {
     return 0;
 }
 
+// --- Audio Implementation ---
+NativeAudioDevice::NativeAudioDevice() {}
+
+void NativeAudioDevice::pushPcmBytes(const uint8_t* data, size_t size) {
+    if (!data || size == 0) return;
+    std::lock_guard<std::mutex> lock(audioMutex);
+    pcmBuffer.insert(pcmBuffer.end(), data, data + size);
+}
+
+std::vector<uint8_t> NativeAudioDevice::fetchPcmBuffer() {
+    std::lock_guard<std::mutex> lock(audioMutex);
+    std::vector<uint8_t> out = std::move(pcmBuffer);
+    pcmBuffer.clear();
+    return out;
+}
+
+bool NativeAudioDevice::hasPcmData() {
+    std::lock_guard<std::mutex> lock(audioMutex);
+    return !pcmBuffer.empty();
+}
+
+void NativeAudioDevice::reset() {
+    std::lock_guard<std::mutex> lock(audioMutex);
+    pcmBuffer.clear();
+}
+
 NativePowerEvent NativeDeviceManager::pollPowerEvent() {
     std::lock_guard<std::mutex> lock(deviceMutex);
     NativePowerEvent ev = powerEvent;
@@ -503,6 +540,7 @@ void NativeDeviceManager::resetAll() {
     display.reset();
     inputDevice.clear();
     gic.reset();
+    audioDevice.reset();
     powerEvent = NativePowerEvent::NONE;
     blkDeviceFeaturesSel = 0;
     blkDriverFeatures = 0;

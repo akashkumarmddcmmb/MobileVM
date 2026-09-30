@@ -67,4 +67,8 @@ object NativeVMBinding {
     external fun nativeSendMouseEvent(handle: Long, buttonMask: Int, dx: Int, dy: Int, absX: Int, absY: Int, wheelDelta: Int = 0)
     external fun nativeSendKeyEvent(handle: Long, scanCode: Int, isDown: Boolean)
     external fun nativeGetInputEventCount(handle: Long): Long
+
+    // Virtual Audio (PCM Output)
+    external fun nativeFetchAudioPcm(handle: Long): ByteArray?
+    external fun nativeWriteAudioPcm(handle: Long, pcmData: ByteArray)
 }
