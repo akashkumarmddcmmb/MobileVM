@@ -85,7 +85,7 @@ class ProprietaryLicensingSystemTest {
         )
         val resp4 = LicenseServerEngine.handleActivate(req4)
         assertFalse("4th device activation must fail due to quota limit", resp4.success)
-        assertTrue("Error message should mention device limit", resp4.message.contains("Device limit reached"))
+        assertTrue("Error message should mention device limit", resp4.message?.contains("Device limit reached") == true)
 
         // Now deactivate device 1 to free a slot
         val deactReq = LicenseDeactivationRequest(
@@ -131,7 +131,7 @@ class ProprietaryLicensingSystemTest {
         val revokedResp = LicenseServerEngine.handleActivate(revokedReq)
         assertFalse("Revoked key must fail", revokedResp.success)
         assertEquals(LicenseStatus.REVOKED, revokedResp.status)
-        assertTrue("Message must mention revocation", revokedResp.message.contains("revoked"))
+        assertTrue("Message must mention revocation", revokedResp.message?.contains("revoked") == true)
     }
 
     @Test

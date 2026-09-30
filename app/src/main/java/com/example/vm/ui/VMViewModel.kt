@@ -441,20 +441,6 @@ class VMViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startVM(config: VMConfig) {
         viewModelScope.launch {
-            // Check License Tier Entitlements
-            val licenseManager = com.example.vm.licensing.LicenseManager.getInstance(getApplication())
-            val gateResult = com.example.vm.licensing.FeatureGate.verifyVmConfig(config, licenseManager.getCurrentEntitlements())
-            if (gateResult is com.example.vm.licensing.FeatureGate.GateResult.Restricted) {
-                val err = com.example.vm.core.VMError(
-                    category = com.example.vm.core.VMErrorCategory.EMULATOR_INIT_FAILED,
-                    summary = "License Tier Limit: ${gateResult.reason}",
-                    technicalDetails = "Current tier: ${gateResult.currentTier.displayName}. Required tier: ${gateResult.requiredTier.displayName}.",
-                    suggestedRemedy = "Activate a Pro or Premium license key in 'Licenses & Protection' or adjust VM CPU/RAM settings."
-                )
-                reportError(err)
-                return@launch
-            }
-
             val active = _activeVM.value
             if (active != null) {
                 val err = com.example.vm.core.VMError(

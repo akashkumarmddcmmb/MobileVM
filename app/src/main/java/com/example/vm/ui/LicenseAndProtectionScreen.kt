@@ -2,8 +2,6 @@ package com.example.vm.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -26,13 +24,6 @@ import com.example.vm.security.LegalLicenseManager
 import com.example.vm.security.ProjectProtectionManager
 import com.example.vm.security.SoftwareLicense
 
-import com.example.vm.licensing.LicenseManager
-import com.example.vm.licensing.LicenseStatus
-import com.example.vm.licensing.LicenseTier
-import com.example.vm.licensing.LicenseEntitlements
-import android.widget.Toast
-import kotlinx.coroutines.launch
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LicenseAndProtectionScreen(
@@ -41,9 +32,6 @@ fun LicenseAndProtectionScreen(
 ) {
     val context = LocalContext.current
     val audit = remember { ProjectProtectionManager.performProtectionAudit(context) }
-    val licenseManager = remember { LicenseManager.getInstance(context) }
-    val licenseState by licenseManager.licenseState.collectAsState()
-    val coroutineScope = rememberCoroutineScope()
 
     var selectedTab by remember { mutableStateOf(0) }
     var expandedLicenseId by remember { mutableStateOf<String?>(null) }
@@ -54,20 +42,14 @@ fun LicenseAndProtectionScreen(
                 title = {
                     Column {
                         Text(
-                            text = "Proprietary Licensing & Protection",
+                            text = "Licenses & Legal Protection",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "${licenseState.tier.displayName} • ${licenseState.status.displayName}",
+                            text = "Open Source Compliance & Integrity Verification",
                             fontSize = 11.sp,
-                            color = when (licenseState.status) {
-                                LicenseStatus.ACTIVE -> Color(0xFF00E676)
-                                LicenseStatus.TRIAL -> Color(0xFF00E5FF)
-                                LicenseStatus.OFFLINE_GRACE_PERIOD -> Color(0xFFFFB300)
-                                LicenseStatus.EXPIRED, LicenseStatus.REVOKED -> Color(0xFFFF5252)
-                                LicenseStatus.INVALID -> Color.Gray
-                            }
+                            color = Color(0xFF00E676)
                         )
                     }
                 },
@@ -82,12 +64,7 @@ fun LicenseAndProtectionScreen(
                 actions = {
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = when (licenseState.status) {
-                            LicenseStatus.ACTIVE -> Color(0x2200E676)
-                            LicenseStatus.TRIAL -> Color(0x2200E5FF)
-                            LicenseStatus.OFFLINE_GRACE_PERIOD -> Color(0x22FFB300)
-                            else -> Color(0x22FF5252)
-                        },
+                        color = Color(0x2200E676),
                         modifier = Modifier.padding(end = 12.dp)
                     ) {
                         Row(
@@ -97,25 +74,15 @@ fun LicenseAndProtectionScreen(
                             Icon(
                                 Icons.Default.Security,
                                 contentDescription = null,
-                                tint = when (licenseState.status) {
-                                    LicenseStatus.ACTIVE -> Color(0xFF00E676)
-                                    LicenseStatus.TRIAL -> Color(0xFF00E5FF)
-                                    LicenseStatus.OFFLINE_GRACE_PERIOD -> Color(0xFFFFB300)
-                                    else -> Color(0xFFFF5252)
-                                },
+                                tint = Color(0xFF00E676),
                                 modifier = Modifier.size(14.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = licenseState.tier.name,
+                                text = "AUTHENTIC",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = when (licenseState.status) {
-                                    LicenseStatus.ACTIVE -> Color(0xFF00E676)
-                                    LicenseStatus.TRIAL -> Color(0xFF00E5FF)
-                                    LicenseStatus.OFFLINE_GRACE_PERIOD -> Color(0xFFFFB300)
-                                    else -> Color(0xFFFF5252)
-                                },
+                                color = Color(0xFF00E676),
                                 fontFamily = FontFamily.Monospace
                             )
                         }
@@ -137,9 +104,9 @@ fun LicenseAndProtectionScreen(
                 Tab(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = { Text("Activation & Plans") },
-                    icon = { Icon(Icons.Default.Key, contentDescription = null) },
-                    modifier = Modifier.testTag("tab_activation")
+                    text = { Text("Licenses & OS Notices") },
+                    icon = { Icon(Icons.Default.Gavel, contentDescription = null) },
+                    modifier = Modifier.testTag("tab_licenses")
                 )
                 Tab(
                     selected = selectedTab == 1,
@@ -151,62 +118,22 @@ fun LicenseAndProtectionScreen(
                 Tab(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
-                    text = { Text("Licenses & OS") },
-                    icon = { Icon(Icons.Default.Gavel, contentDescription = null) },
-                    modifier = Modifier.testTag("tab_licenses")
-                )
-                Tab(
-                    selected = selectedTab == 3,
-                    onClick = { selectedTab = 3 },
-                    text = { Text("EULA") },
+                    text = { Text("EULA & Copyright") },
                     icon = { Icon(Icons.Default.Description, contentDescription = null) },
                     modifier = Modifier.testTag("tab_eula")
                 )
             }
 
             when (selectedTab) {
-                0 -> LicenseActivationTab(
-                    licenseState = licenseState,
-                    onActivate = { key ->
-                        coroutineScope.launch {
-                            val result = licenseManager.activateKey(key)
-                            if (result.isSuccess) {
-                                Toast.makeText(context, "License Activated: ${result.getOrNull()?.tier?.displayName}", Toast.LENGTH_LONG).show()
-                            } else {
-                                Toast.makeText(context, "Activation Failed: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    },
-                    onValidate = {
-                        coroutineScope.launch {
-                            val result = licenseManager.refreshValidation()
-                            if (result.isSuccess) {
-                                Toast.makeText(context, "Validation Succeeded: License is ACTIVE", Toast.LENGTH_SHORT).show()
-                            } else {
-                                Toast.makeText(context, "Validation Error: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    },
-                    onDeactivate = {
-                        coroutineScope.launch {
-                            licenseManager.deactivateCurrentKey()
-                            Toast.makeText(context, "Device deactivated. Reverted to Free plan.", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    onStartTrial = {
-                        licenseManager.startEvaluationTrial()
-                        Toast.makeText(context, "14-Day Pro Trial Activated!", Toast.LENGTH_SHORT).show()
-                    }
-                )
-                1 -> AntiCopyGuardTab(audit)
-                2 -> LicensesListTab(
+                0 -> LicensesListTab(
                     licenses = LegalLicenseManager.LICENSES,
                     expandedId = expandedLicenseId,
                     onToggleExpand = { id ->
                         expandedLicenseId = if (expandedLicenseId == id) null else id
                     }
                 )
-                3 -> EulaTab()
+                1 -> AntiCopyGuardTab(audit)
+                2 -> EulaTab()
             }
         }
     }
@@ -527,400 +454,3 @@ private fun EulaTab() {
         }
     }
 }
-
-@Composable
-private fun LicenseActivationTab(
-    licenseState: com.example.vm.licensing.LicenseState,
-    onActivate: (String) -> Unit,
-    onValidate: () -> Unit,
-    onDeactivate: () -> Unit,
-    onStartTrial: () -> Unit
-) {
-    val context = LocalContext.current
-    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
-    var inputKey by remember { mutableStateOf("") }
-
-    val statusColor = when (licenseState.status) {
-        LicenseStatus.ACTIVE -> Color(0xFF00E676)
-        LicenseStatus.TRIAL -> Color(0xFF00E5FF)
-        LicenseStatus.OFFLINE_GRACE_PERIOD -> Color(0xFFFFB300)
-        LicenseStatus.EXPIRED, LicenseStatus.REVOKED -> Color(0xFFFF5252)
-        LicenseStatus.INVALID -> Color.Gray
-    }
-
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // 1. Current Plan & Status Card
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.5.dp, statusColor.copy(alpha = 0.6f))
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column {
-                            Text(
-                                text = licenseState.tier.displayName,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = "Proprietary Commercial License",
-                                fontSize = 12.sp,
-                                color = Color.Gray
-                            )
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = statusColor.copy(alpha = 0.2f),
-                            border = BorderStroke(1.dp, statusColor)
-                        ) {
-                            Text(
-                                text = licenseState.status.displayName.uppercase(),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = statusColor,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-                    HorizontalDivider(color = Color.DarkGray)
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    if (licenseState.isTimeTampered) {
-                        Surface(
-                            color = Color(0x33FF5252),
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, Color(0xFFFF5252)),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 12.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFFF5252))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "SECURITY ALERT: Clock manipulation detected. Offline grace disabled.",
-                                    fontSize = 11.sp,
-                                    color = Color(0xFFFF5252),
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-                    }
-
-                    DetailRow("License Key", licenseState.licenseKey ?: "None (Using Free Tier)")
-                    DetailRow("Licensed To", licenseState.issuedTo ?: "Standard User")
-                    DetailRow(
-                        "Expiration",
-                        if (licenseState.isPerpetual) "Perpetual / Lifetime"
-                        else if (licenseState.expiresAt > 0L) java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(licenseState.expiresAt))
-                        else "N/A"
-                    )
-
-                    if (licenseState.status == LicenseStatus.OFFLINE_GRACE_PERIOD) {
-                        val hours = licenseState.offlineGracePeriodRemainingMs / (1000 * 60 * 60)
-                        DetailRow("Offline Grace Remaining", "$hours hours remaining (7 days max)")
-                    }
-
-                    licenseState.serverMessage?.let { msg ->
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Server Note: $msg",
-                            fontSize = 11.sp,
-                            color = Color.Gray,
-                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
-                        )
-                    }
-                }
-            }
-        }
-
-        // 2. Hardware Device Binding Card
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.Smartphone,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Hardware Device Identity",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "Device Fingerprint:",
-                        fontSize = 11.sp,
-                        color = Color.Gray
-                    )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = licenseState.deviceId,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp,
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(
-                            onClick = {
-                                clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(licenseState.deviceId))
-                                Toast.makeText(context, "Device ID copied!", Toast.LENGTH_SHORT).show()
-                            }
-                        ) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy Device ID", modifier = Modifier.size(18.dp))
-                        }
-                    }
-
-                    Text(
-                        text = "Active Device Quota: ${licenseState.activeDeviceCount} of ${licenseState.maxDevices} device(s)",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-
-        // 3. Activation Controls Card
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Activate License Key",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    OutlinedTextField(
-                        value = inputKey,
-                        onValueChange = { inputKey = it.uppercase() },
-                        label = { Text("License Key (MBM-XXXX-XXXX...)") },
-                        placeholder = { Text("MBM-PRO-2026-TEST-7890-ABCD") },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("txt_license_key"),
-                        trailingIcon = {
-                            if (inputKey.isNotEmpty()) {
-                                IconButton(onClick = { inputKey = "" }) {
-                                    Icon(Icons.Default.Clear, contentDescription = "Clear")
-                                }
-                            }
-                        }
-                    )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = { onActivate(inputKey) },
-                            enabled = inputKey.isNotBlank(),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("btn_activate_license")
-                        ) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Activate")
-                        }
-
-                        OutlinedButton(
-                            onClick = onValidate,
-                            enabled = licenseState.licenseKey != null,
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("btn_validate_license")
-                        ) {
-                            Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Validate")
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        if (licenseState.licenseKey != null && licenseState.status == LicenseStatus.ACTIVE) {
-                            OutlinedButton(
-                                onClick = onDeactivate,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("btn_deactivate_license"),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF5252))
-                            ) {
-                                Text("Deactivate Device")
-                            }
-                        }
-
-                        if (licenseState.status != LicenseStatus.ACTIVE && licenseState.status != LicenseStatus.TRIAL) {
-                            FilledTonalButton(
-                                onClick = onStartTrial,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("btn_start_trial")
-                            ) {
-                                Text("14-Day Pro Trial")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 4. Feature Entitlements Breakdown
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Active Tier Entitlements",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    EntitlementItem("Maximum vCPU Cores", "${licenseState.entitlements.maxCpuCores} Core(s)", true)
-                    EntitlementItem("Maximum RAM Allocation", "${licenseState.entitlements.maxRamMb} MB", true)
-                    EntitlementItem("Disk Snapshots", if (licenseState.entitlements.canCreateSnapshots) "Enabled" else "Pro/Premium only", licenseState.entitlements.canCreateSnapshots)
-                    EntitlementItem("VM Disk Export", if (licenseState.entitlements.canExportVm) "Enabled" else "Pro/Premium only", licenseState.entitlements.canExportVm)
-                    EntitlementItem("Custom Disk Images", if (licenseState.entitlements.canUseCustomDisks) "Enabled" else "Pro/Premium only", licenseState.entitlements.canUseCustomDisks)
-                    EntitlementItem("Priority CPU Emulation", if (licenseState.entitlements.canUsePriorityCpu) "Enabled" else "Premium/Enterprise only", licenseState.entitlements.canUsePriorityCpu)
-                    EntitlementItem("Headless VM Execution", if (licenseState.entitlements.canUseHeadlessMode) "Enabled" else "Premium/Enterprise only", licenseState.entitlements.canUseHeadlessMode)
-                }
-            }
-        }
-
-        // 5. Official Test / Sample Keys
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, Color.DarkGray)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Official Test & Demonstration Keys",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = "Click any official test key below to auto-fill and test activation:",
-                        fontSize = 11.sp,
-                        color = Color.Gray
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    SampleKeyButton("MobileVM Pro (1 Year, 3 Devices)", "MVM-PRO-2026-TEST-7890-ABCD") { inputKey = it }
-                    SampleKeyButton("MobileVM Premium (Lifetime, 5 Devices)", "MVM-PREMIUM-2026-POWER-4321-EFGH") { inputKey = it }
-                    SampleKeyButton("MobileVM Enterprise (Lifetime, 20 Devices)", "MVM-ENTERPRISE-2026-CORP-9999-XYZW") { inputKey = it }
-                    SampleKeyButton("Revoked Key (Negative Test)", "MVM-REVOKED-2026-BADK-0000-FAIL") { inputKey = it }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DetailRow(label: String, value: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(text = label, fontSize = 12.sp, color = Color.Gray)
-        Text(text = value, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace)
-    }
-}
-
-@Composable
-private fun EntitlementItem(label: String, value: String, isAllowed: Boolean) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                if (isAllowed) Icons.Default.Check else Icons.Default.Close,
-                contentDescription = null,
-                tint = if (isAllowed) Color(0xFF00E676) else Color.Gray,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(text = label, fontSize = 12.sp)
-        }
-        Text(
-            text = value,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = if (isAllowed) MaterialTheme.colorScheme.primary else Color.Gray
-        )
-    }
-}
-
-@Composable
-private fun SampleKeyButton(label: String, key: String, onSelect: (String) -> Unit) {
-    Surface(
-        onClick = { onSelect(key) },
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-    ) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            Text(text = label, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            Text(text = key, fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.primary)
-        }
-    }
-}
-

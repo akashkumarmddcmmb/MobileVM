@@ -1,29 +1,31 @@
 package com.example.vm.licensing
 
 /**
- * MobileVM Proprietary Licensing System - Domain Models & Entitlements.
- *
- * Designed to enforce:
- *  1. Cryptographic license binding to device hardware & package ID.
- *  2. Multi-tier entitlements (FREE, PRO, PREMIUM, ENTERPRISE).
- *  3. Dynamic status tracking (ACTIVE, TRIAL, OFFLINE_GRACE_PERIOD, EXPIRED, REVOKED, INVALID).
- *  4. Tamper-evident serialization and verification.
+ * Tier levels for MobileVM proprietary licensing system.
  */
-
-enum class LicenseStatus(val displayName: String) {
-    ACTIVE("Active"),
-    TRIAL("Trial"),
-    OFFLINE_GRACE_PERIOD("Offline Grace Period"),
-    EXPIRED("Expired"),
-    REVOKED("Revoked"),
-    INVALID("Invalid / Unactivated")
-}
-
 enum class LicenseTier(val displayName: String) {
-    FREE("MobileVM Free"),
+    FREE("MobileVM Free / Community"),
     PRO("MobileVM Pro"),
     PREMIUM("MobileVM Premium"),
-    ENTERPRISE("MobileVM Enterprise")
+    ENTERPRISE("MobileVM Enterprise");
+
+    companion object {
+        fun fromString(name: String): LicenseTier {
+            return entries.firstOrNull { it.name.equals(name, ignoreCase = true) } ?: FREE
+        }
+    }
+}
+
+/**
+ * Represents the current operational state of a license.
+ */
+enum class LicenseStatus(val displayName: String) {
+    ACTIVE("Active / Valid"),
+    TRIAL("Evaluation Trial"),
+    OFFLINE_GRACE_PERIOD("Offline Grace Period"),
+    EXPIRED("Expired"),
+    REVOKED("Revoked / Blacklisted"),
+    INVALID("Invalid / Unactivated");
 }
 
 data class LicenseEntitlements(
@@ -118,8 +120,6 @@ data class LicenseEntitlements(
                         "feature_headless_mode",
                         "feature_high_res_framebuffer",
                         "feature_vm_export",
-                        "feature_enterprise_audit_log",
-                        "feature_isolated_network_bridge",
                         "feature_unlimited_resources"
                     )
                 )
@@ -128,47 +128,47 @@ data class LicenseEntitlements(
     }
 }
 
+data class LicenseState(
+    val status: LicenseStatus = LicenseStatus.INVALID,
+    val tier: LicenseTier = LicenseTier.FREE,
+    val licenseKey: String? = null,
+    val issuedTo: String? = null,
+    val deviceId: String = "",
+    val activeDeviceCount: Int = 1,
+    val maxDevices: Int = 1,
+    val expiresAt: Long = 0L,
+    val isPerpetual: Boolean = false,
+    val lastVerifiedAt: Long = 0L,
+    val lastValidatedAt: Long = 0L,
+    val offlineGracePeriodRemainingMs: Long = 0L,
+    val isTimeTampered: Boolean = false,
+    val entitlements: LicenseEntitlements = LicenseEntitlements.defaultFor(LicenseTier.FREE),
+    val serverMessage: String? = null
+)
+
 data class LicenseRecord(
     val licenseKey: String,
-    val licenseHash: String,
+    val licenseHash: String = "",
     val tier: LicenseTier,
     val status: LicenseStatus,
     val issuedTo: String,
-    val issuedAt: Long,
-    val expiresAt: Long, // 0L means perpetual / lifetime
-    val maxDevices: Int,
-    val activeDevices: List<String>,
-    val entitlements: LicenseEntitlements,
-    val lastValidatedAt: Long,
-    val signature: String
-)
-
-data class LicenseState(
-    val status: LicenseStatus,
-    val tier: LicenseTier,
-    val licenseKey: String?,
-    val issuedTo: String?,
+    val issuedAt: Long = System.currentTimeMillis(),
     val expiresAt: Long,
-    val isPerpetual: Boolean,
+    val lastValidatedAt: Long = System.currentTimeMillis(),
+    val activeDevices: List<String> = emptyList(),
+    val maxDevices: Int = 3,
     val entitlements: LicenseEntitlements,
-    val deviceId: String,
-    val activeDeviceCount: Int,
-    val maxDevices: Int,
-    val offlineGracePeriodRemainingMs: Long,
-    val isTimeTampered: Boolean,
-    val lastValidatedAt: Long,
-    val serverMessage: String?
+    val signature: String = ""
 )
 
-// API Request and Response Models
 data class LicenseActivationRequest(
     val licenseKey: String,
     val deviceId: String,
-    val deviceName: String,
-    val packageId: String,
-    val signatureFingerprint: String,
-    val clientTimestamp: Long,
-    val nonce: String
+    val deviceName: String = "",
+    val packageId: String = "",
+    val signatureFingerprint: String = "",
+    val nonce: String = "",
+    val clientTimestamp: Long = System.currentTimeMillis()
 )
 
 data class LicenseActivationResponse(
@@ -182,16 +182,16 @@ data class LicenseActivationResponse(
     val maxDevices: Int,
     val serverTimestamp: Long,
     val signature: String,
-    val message: String
+    val message: String? = null
 )
 
 data class LicenseValidationRequest(
     val licenseKey: String,
     val deviceId: String,
-    val packageId: String,
-    val signatureFingerprint: String,
-    val clientTimestamp: Long,
-    val nonce: String
+    val packageId: String = "",
+    val signatureFingerprint: String = "",
+    val nonce: String = "",
+    val clientTimestamp: Long = System.currentTimeMillis()
 )
 
 data class LicenseValidationResponse(
@@ -202,27 +202,27 @@ data class LicenseValidationResponse(
     val entitlements: LicenseEntitlements,
     val serverTimestamp: Long,
     val signature: String,
-    val message: String
+    val message: String? = null
 )
 
 data class LicenseDeactivationRequest(
     val licenseKey: String,
     val deviceId: String,
-    val clientTimestamp: Long
+    val clientTimestamp: Long = System.currentTimeMillis()
 )
 
 data class LicenseDeactivationResponse(
     val success: Boolean,
-    val message: String
+    val message: String? = null
 )
 
 data class LicenseRevocationRequest(
-    val adminSecret: String,
     val licenseKey: String,
+    val adminSecret: String,
     val reason: String
 )
 
 data class LicenseRevocationResponse(
     val success: Boolean,
-    val message: String
+    val message: String? = null
 )

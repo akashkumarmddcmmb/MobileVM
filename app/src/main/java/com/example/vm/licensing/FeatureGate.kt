@@ -10,9 +10,6 @@ import com.example.vm.core.VMConfig
  *  - Pro Tier: Max 4 vCPUs, Max 2048MB RAM, Disk Snapshots, Custom Images, Hardware Keys.
  *  - Premium Tier: Max 8 vCPUs, Max 4096MB RAM, VM Export, Headless Mode, High-Res Framebuffer.
  *  - Enterprise Tier: Max 16 vCPUs, Max 16384MB RAM, Unlimited Resources, Isolated Network Bridges.
- *
- * NOTE: This is NOT just a UI hide/show mechanism. The VM kernel loader and configuration
- * validator invoke [verifyVmConfig] prior to VM creation or launch.
  */
 object FeatureGate {
 
