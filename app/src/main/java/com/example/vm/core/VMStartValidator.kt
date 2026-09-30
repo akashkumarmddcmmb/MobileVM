@@ -151,7 +151,11 @@ object VMStartValidator {
             }
         } else {
             // Linux Kernel Validation & Sandbox Enforcement
-            if (config.kernelImagePath.isBlank()) {
+            val kernelPath = config.kernelImagePath
+            val initramfsPath = config.initramfsPath
+            val diskPath = config.diskImagePath
+
+            if (kernelPath.isBlank()) {
                 return ValidationResult.Invalid(
                     VMError.kernelMissing(
                         path = "(none)",
@@ -160,21 +164,21 @@ object VMStartValidator {
                 )
             }
 
-            if (!diskBackend.isGuestImagePathAuthorized(config.kernelImagePath) && !diskBackend.isPathAuthorized(config.kernelImagePath)) {
+            if (!diskBackend.isGuestImagePathAuthorized(kernelPath) && !diskBackend.isPathAuthorized(kernelPath)) {
                 return ValidationResult.Invalid(
                     VMError.kernelMissing(
-                        path = config.kernelImagePath,
+                        path = kernelPath,
                         details = "Security Violation: Kernel path is outside authorized application storage sandbox."
                     )
                 )
             }
 
-            val kernelFile = File(config.kernelImagePath)
+            val kernelFile = File(kernelPath)
             if (!kernelFile.exists()) {
                 return ValidationResult.Invalid(
                     VMError.kernelMissing(
-                        path = config.kernelImagePath,
-                        details = "Kernel file does not exist on storage. Path: ${config.kernelImagePath}"
+                        path = kernelPath,
+                        details = "Kernel file does not exist on storage. Path: $kernelPath"
                     )
                 )
             }
@@ -182,7 +186,7 @@ object VMStartValidator {
             if (!kernelFile.canRead()) {
                 return ValidationResult.Invalid(
                     VMError.kernelMissing(
-                        path = config.kernelImagePath,
+                        path = kernelPath,
                         details = "Permission Denied: Kernel file is not readable by the application process."
                     )
                 )
@@ -191,34 +195,34 @@ object VMStartValidator {
             if (kernelFile.length() < 64) {
                 return ValidationResult.Invalid(
                     VMError.kernelMissing(
-                        path = config.kernelImagePath,
+                        path = kernelPath,
                         details = "Kernel file is too small (${kernelFile.length()} bytes) to contain a valid ARM64 header."
                     )
                 )
             }
 
-            val kernelInfo = GuestKernelManager.inspectKernel(config.kernelImagePath)
+            val kernelInfo = GuestKernelManager.inspectKernel(kernelPath)
             if (!kernelInfo.isArm64Valid) {
                 return ValidationResult.Invalid(
                     VMError.kernelMissing(
-                        path = config.kernelImagePath,
+                        path = kernelPath,
                         details = "Invalid Kernel Binary: ${kernelInfo.formatDescription}"
                     )
                 )
             }
 
             // 4. Initramfs Validation (if specified)
-            if (config.initramfsPath.isNotBlank()) {
-                if (!diskBackend.isGuestImagePathAuthorized(config.initramfsPath) && !diskBackend.isPathAuthorized(config.initramfsPath)) {
+            if (initramfsPath.isNotBlank()) {
+                if (!diskBackend.isGuestImagePathAuthorized(initramfsPath) && !diskBackend.isPathAuthorized(initramfsPath)) {
                     return ValidationResult.Invalid(
-                        VMError.initramfsMissing(config.initramfsPath)
+                        VMError.initramfsMissing(initramfsPath)
                     )
                 }
 
-                val initrdFile = File(config.initramfsPath)
+                val initrdFile = File(initramfsPath)
                 if (!initrdFile.exists()) {
                     return ValidationResult.Invalid(
-                        VMError.initramfsMissing(config.initramfsPath)
+                        VMError.initramfsMissing(initramfsPath)
                     )
                 }
 
@@ -233,38 +237,38 @@ object VMStartValidator {
                     )
                 }
 
-                val initrdInfo = GuestInitramfsManager.inspectInitramfs(config.initramfsPath)
+                val initrdInfo = GuestInitramfsManager.inspectInitramfs(initramfsPath)
                 if (!initrdInfo.exists || initrdInfo.sizeBytes == 0L) {
                     return ValidationResult.Invalid(
-                        VMError.initramfsMissing(config.initramfsPath)
+                        VMError.initramfsMissing(initramfsPath)
                     )
                 }
 
                 if (!initrdInfo.hasUsableInit) {
                     return ValidationResult.Invalid(
-                        VMError.initramfsMissingInit(config.initramfsPath)
+                        VMError.initramfsMissingInit(initramfsPath)
                     )
                 }
             }
 
             // 5. Virtual Disk Validation (if specified)
-            if (config.diskImagePath.isNotBlank()) {
-                if (!diskBackend.isPathAuthorized(config.diskImagePath) && !diskBackend.isGuestImagePathAuthorized(config.diskImagePath)) {
+            if (diskPath.isNotBlank()) {
+                if (!diskBackend.isPathAuthorized(diskPath) && !diskBackend.isGuestImagePathAuthorized(diskPath)) {
                     return ValidationResult.Invalid(
                         VMError.diskInvalid(
-                            path = config.diskImagePath,
+                            path = diskPath,
                             details = "Security Violation: Disk image path is outside authorized application storage."
                         )
                     )
                 }
 
-                val diskFile = File(config.diskImagePath)
+                val diskFile = File(diskPath)
                 if (!diskFile.exists()) {
-                    val created = diskBackend.createDiskImage(config.diskImagePath, config.diskSizeGb, sparse = true)
+                    val created = diskBackend.createDiskImage(diskPath, config.diskSizeGb, sparse = true)
                     if (!created) {
                         return ValidationResult.Invalid(
                             VMError.diskInvalid(
-                                path = config.diskImagePath,
+                                path = diskPath,
                                 details = "Virtual disk file does not exist and could not be created."
                             )
                         )
@@ -273,7 +277,7 @@ object VMStartValidator {
                     if (diskFile.length() < 512) {
                         return ValidationResult.Invalid(
                             VMError.diskInvalid(
-                                path = config.diskImagePath,
+                                path = diskPath,
                                 details = "Disk file size (${diskFile.length()} bytes) is too small to contain valid MBR/GPT sectors."
                             )
                         )
@@ -281,7 +285,7 @@ object VMStartValidator {
                     if (!diskFile.canRead() || !diskFile.canWrite()) {
                         return ValidationResult.Invalid(
                             VMError.diskInvalid(
-                                path = config.diskImagePath,
+                                path = diskPath,
                                 details = "Virtual disk permissions error (read=${diskFile.canRead()}, write=${diskFile.canWrite()})."
                             )
                         )

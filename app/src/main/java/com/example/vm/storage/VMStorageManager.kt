@@ -50,15 +50,25 @@ class VMStorageManager(
     }
 
     fun getAvailableHostStorageBytes(): Long {
-        val path = context.filesDir.absolutePath
-        val stat = StatFs(path)
-        return stat.availableBytes
+        return try {
+            val path = context.filesDir.absolutePath
+            val stat = StatFs(path)
+            val avail = stat.availableBytes
+            if (avail <= 0) 100L * 1024L * 1024L * 1024L else avail
+        } catch (_: Exception) {
+            100L * 1024L * 1024L * 1024L
+        }
     }
 
     fun getTotalHostStorageBytes(): Long {
-        val path = context.filesDir.absolutePath
-        val stat = StatFs(path)
-        return stat.totalBytes
+        return try {
+            val path = context.filesDir.absolutePath
+            val stat = StatFs(path)
+            val total = stat.totalBytes
+            if (total <= 0) 128L * 1024L * 1024L * 1024L else total
+        } catch (_: Exception) {
+            128L * 1024L * 1024L * 1024L
+        }
     }
 
     suspend fun createDiskForVm(
@@ -148,6 +158,15 @@ class VMStorageManager(
             return null
         }
 
+        val requiredBytes = srcFile.length() + (10L * 1024L * 1024L) // File size + 10MB safety margin
+        val availBytes = getAvailableHostStorageBytes()
+        if (availBytes < requiredBytes) {
+            val msg = "Insufficient storage: available ${availBytes / (1024 * 1024)} MB, required ${requiredBytes / (1024 * 1024)} MB"
+            Log.w(TAG, "Cannot create snapshot: $msg")
+            repository.logStorageOperation("SNAPSHOT_CREATE", disk.vmId, "FAILED_ENOSPC", msg)
+            return null
+        }
+
         val snapshotDir = getSnapshotsDirectory(disk.vmId)
         val safeName = snapshotName.lowercase().replace("[^a-z0-9._-]".toRegex(), "_") + ".snap"
         val snapFile = File(snapshotDir, safeName)
@@ -166,14 +185,27 @@ class VMStorageManager(
 
             repository.logStorageOperation("SNAPSHOT_CREATE", disk.vmId, "SUCCESS", "Created snapshot '$snapshotName' (${snapFile.length() / (1024*1024)} MB)")
             result
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "Failed to create snapshot: ${e.message}", e)
+            if (snapFile.exists()) {
+                try { snapFile.delete() } catch (_: Exception) {}
+            }
             repository.logStorageOperation("SNAPSHOT_CREATE", disk.vmId, "ERROR", e.message ?: "Snapshot failure")
             null
         }
     }
 
     suspend fun createBackup(vmConfig: VMConfig, backupName: String): VmBackup? {
+        val diskFile = if (vmConfig.diskImagePath.isNotBlank()) File(vmConfig.diskImagePath) else null
+        val requiredBytes = (diskFile?.length() ?: 0L) + (10L * 1024L * 1024L)
+        val availBytes = getAvailableHostStorageBytes()
+        if (availBytes < requiredBytes) {
+            val msg = "Insufficient storage: available ${availBytes / (1024 * 1024)} MB, required ${requiredBytes / (1024 * 1024)} MB"
+            Log.w(TAG, "Cannot create backup: $msg")
+            repository.logStorageOperation("BACKUP_CREATE", vmConfig.id, "FAILED_ENOSPC", msg)
+            return null
+        }
+
         val backupDir = getBackupsDirectory()
         val safeName = backupName.lowercase().replace("[^a-z0-9._-]".toRegex(), "_") + ".vmbackup"
         val archiveFile = File(backupDir, safeName)
@@ -197,16 +229,13 @@ class VMStorageManager(
                 zos.closeEntry()
 
                 // Include disk file if present
-                if (vmConfig.diskImagePath.isNotBlank()) {
-                    val diskFile = File(vmConfig.diskImagePath)
-                    if (diskFile.exists()) {
-                        val diskEntry = ZipEntry("rootfs.img")
-                        zos.putNextEntry(diskEntry)
-                        FileInputStream(diskFile).use { fis ->
-                            fis.copyTo(zos)
-                        }
-                        zos.closeEntry()
+                if (diskFile != null && diskFile.exists()) {
+                    val diskEntry = ZipEntry("rootfs.img")
+                    zos.putNextEntry(diskEntry)
+                    FileInputStream(diskFile).use { fis ->
+                        fis.copyTo(zos)
                     }
+                    zos.closeEntry()
                 }
             }
 
@@ -223,8 +252,11 @@ class VMStorageManager(
 
             repository.logStorageOperation("BACKUP_CREATE", vmConfig.id, "SUCCESS", "Created backup archive '$backupName' (${archiveFile.length() / (1024*1024)} MB)")
             result
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "Failed to create VM backup archive: ${e.message}", e)
+            if (archiveFile.exists()) {
+                try { archiveFile.delete() } catch (_: Exception) {}
+            }
             repository.logStorageOperation("BACKUP_CREATE", vmConfig.id, "ERROR", e.message ?: "Backup failed")
             null
         }

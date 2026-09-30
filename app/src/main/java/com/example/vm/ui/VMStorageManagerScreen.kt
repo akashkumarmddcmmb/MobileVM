@@ -40,6 +40,7 @@ fun VMStorageManagerScreen(
     var showCreateDiskDialog by remember { mutableStateOf(false) }
     var selectedDiskForResize by remember { mutableStateOf<VmDisk?>(null) }
     var activeTab by remember { mutableIntStateOf(0) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     Scaffold(
         topBar = {
@@ -54,7 +55,8 @@ fun VMStorageManagerScreen(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
                 )
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -192,7 +194,16 @@ fun VMStorageManagerScreen(
                     onExpandDisk = { selectedDiskForResize = it },
                     onTakeSnapshot = { disk ->
                         coroutineScope.launch {
-                            viewModel.storageManager.createSnapshot(disk, "Snap_${System.currentTimeMillis() % 10000}")
+                            try {
+                                val res = viewModel.storageManager.createSnapshot(disk, "Snap_${System.currentTimeMillis() % 10000}")
+                                if (res == null) {
+                                    snackbarHostState.showSnackbar("Failed to create snapshot. Please check available storage space.")
+                                } else {
+                                    snackbarHostState.showSnackbar("Snapshot created successfully.")
+                                }
+                            } catch (e: Exception) {
+                                snackbarHostState.showSnackbar("Error creating snapshot: ${e.message}")
+                            }
                         }
                     }
                 )
@@ -202,12 +213,26 @@ fun VMStorageManagerScreen(
                     vmConfigs = vmConfigs,
                     onCreateBackup = { config ->
                         coroutineScope.launch {
-                            viewModel.storageManager.createBackup(config, "${config.name}_Backup")
+                            try {
+                                val res = viewModel.storageManager.createBackup(config, "${config.name}_Backup")
+                                if (res == null) {
+                                    snackbarHostState.showSnackbar("Failed to create backup archive. Storage space may be insufficient.")
+                                } else {
+                                    snackbarHostState.showSnackbar("Backup created successfully.")
+                                }
+                            } catch (e: Exception) {
+                                snackbarHostState.showSnackbar("Error creating backup: ${e.message}")
+                            }
                         }
                     },
                     onRestoreBackup = { backup ->
                         coroutineScope.launch {
-                            viewModel.storageManager.restoreBackup(backup)
+                            try {
+                                viewModel.storageManager.restoreBackup(backup)
+                                snackbarHostState.showSnackbar("Backup restored.")
+                            } catch (e: Exception) {
+                                snackbarHostState.showSnackbar("Error restoring backup: ${e.message}")
+                            }
                         }
                     }
                 )

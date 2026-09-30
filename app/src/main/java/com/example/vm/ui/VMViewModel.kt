@@ -470,6 +470,87 @@ class VMViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun importKernelForConfig(config: VMConfig, uri: android.net.Uri) {
+        viewModelScope.launch {
+            try {
+                val context = getApplication<Application>()
+                val stream = context.contentResolver.openInputStream(uri)
+                if (stream != null) {
+                    val result = com.example.vm.guest.kernel.GuestKernelDownloader.importKernel(context, stream, "vmlinuz_${config.name.replace("\\s+".toRegex(), "_").lowercase()}")
+                    when (result) {
+                        is com.example.vm.guest.kernel.GuestKernelDownloader.DownloadResult.Success -> {
+                            val updated = config.copy(kernelImagePath = result.kernelFile.absolutePath)
+                            saveFullConfig(updated)
+                            _errorMessage.value = "Kernel imported successfully: ${result.kernelFile.name}"
+                        }
+                        is com.example.vm.guest.kernel.GuestKernelDownloader.DownloadResult.Failure -> {
+                            _errorMessage.value = result.reason
+                        }
+                    }
+                } else {
+                    _errorMessage.value = "Unable to open input stream for selected kernel URI."
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = "Kernel import failed: ${e.localizedMessage}"
+            }
+        }
+    }
+
+    fun importInitramfsForConfig(config: VMConfig, uri: android.net.Uri) {
+        viewModelScope.launch {
+            try {
+                val context = getApplication<Application>()
+                val stream = context.contentResolver.openInputStream(uri)
+                if (stream != null) {
+                    val result = com.example.vm.guest.initramfs.GuestInitramfsDownloader.importInitramfs(context, stream, "initramfs_${config.name.replace("\\s+".toRegex(), "_").lowercase()}.cpio.gz")
+                    when (result) {
+                        is com.example.vm.guest.initramfs.GuestInitramfsDownloader.InitramfsResult.Success -> {
+                            val updated = config.copy(initramfsPath = result.initramfsFile.absolutePath)
+                            saveFullConfig(updated)
+                            _errorMessage.value = "Initramfs imported successfully: ${result.initramfsFile.name}"
+                        }
+                        is com.example.vm.guest.initramfs.GuestInitramfsDownloader.InitramfsResult.Failure -> {
+                            _errorMessage.value = result.reason
+                        }
+                    }
+                } else {
+                    _errorMessage.value = "Unable to open input stream for selected initramfs URI."
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = "Initramfs import failed: ${e.localizedMessage}"
+            }
+        }
+    }
+
+    fun importDiskForConfig(config: VMConfig, uri: android.net.Uri) {
+        viewModelScope.launch {
+            try {
+                val context = getApplication<Application>()
+                val stream = context.contentResolver.openInputStream(uri)
+                if (stream != null) {
+                    val targetName = "${config.name.replace("\\s+".toRegex(), "_").lowercase()}_imported.img"
+                    val result = com.example.vm.guest.os.ImportManager.importImageStream(
+                        context, stream, targetName, com.example.vm.guest.os.InstallationMode.MODE_A_PREINSTALLED
+                    )
+                    when (result) {
+                        is com.example.vm.guest.os.ImportResult.Success -> {
+                            val updated = config.copy(diskImagePath = result.importedFile.absolutePath)
+                            saveFullConfig(updated)
+                            _errorMessage.value = "Disk image imported successfully: ${result.importedFile.name}"
+                        }
+                        is com.example.vm.guest.os.ImportResult.Failure -> {
+                            _errorMessage.value = result.reason
+                        }
+                    }
+                } else {
+                    _errorMessage.value = "Unable to open input stream for selected disk URI."
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = "Disk import failed: ${e.localizedMessage}"
+            }
+        }
+    }
+
     private val vmOperationMutex = kotlinx.coroutines.sync.Mutex()
 
     fun startVM(config: VMConfig) {
