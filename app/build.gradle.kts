@@ -7,7 +7,6 @@ plugins {
 
 android {
   namespace = "com.example"
-  ndkVersion = "26.1.10909125"
   compileSdk {
     version = release(36) {
       minorApiLevel = 1

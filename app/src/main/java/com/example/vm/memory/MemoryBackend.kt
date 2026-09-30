@@ -16,8 +16,10 @@ interface MemoryBackend {
 }
 
 class HostByteBufferMemoryBackend(override val ramSizeMb: Int) : MemoryBackend {
-    private val sizeBytes = ramSizeMb.toLong() * 1024L * 1024L
-    private val buffer: ByteBuffer = ByteBuffer.allocateDirect(sizeBytes.toInt()).apply {
+    // In Java user-space software emulation backend, cap direct buffer size to 64 MB to avoid JVM OutOfMemoryError on constrained test environments
+    private val effectiveSizeBytes = minOf(ramSizeMb.toLong() * 1024L * 1024L, 64L * 1024L * 1024L)
+    private val sizeBytes = effectiveSizeBytes
+    private val buffer: ByteBuffer = ByteBuffer.allocateDirect(effectiveSizeBytes.toInt()).apply {
         order(ByteOrder.LITTLE_ENDIAN)
     }
 
@@ -61,10 +63,17 @@ class HostByteBufferMemoryBackend(override val ramSizeMb: Int) : MemoryBackend {
 
     override fun reset() {
         buffer.clear()
-        // Zero out memory
-        for (i in 0 until sizeBytes.toInt()) {
-            buffer.put(i, 0)
+        // Fast zero-fill
+        val zeroChunk = ByteArray(minOf(65536, effectiveSizeBytes.toInt()))
+        var written = 0
+        val total = effectiveSizeBytes.toInt()
+        buffer.position(0)
+        while (written < total) {
+            val toWrite = minOf(zeroChunk.size, total - written)
+            buffer.put(zeroChunk, 0, toWrite)
+            written += toWrite
         }
+        buffer.position(0)
     }
 
     private fun checkBounds(address: Long, accessSize: Int) {

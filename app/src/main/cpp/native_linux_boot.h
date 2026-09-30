@@ -42,11 +42,21 @@ public:
         std::string& outLog
     );
 
+    static bool loadWindowsGuest(
+        const LinuxBootConfig& config,
+        const std::string& diskPath,
+        NativeMemory& memory,
+        NativeCPUBackend& cpu,
+        NativeDeviceManager& devices,
+        std::string& outLog
+    );
+
     static bool verifyKernelImage(const std::string& path, Arm64KernelHeader& outHeader, std::string& outError);
 
 private:
     static bool loadCustomKernel(const LinuxBootConfig& config, NativeMemory& memory, NativeCPUBackend& cpu, std::string& outLog);
     static uint64_t generateDeviceTreeBlob(const LinuxBootConfig& config, NativeMemory& memory, uint64_t dtbOffset, uint64_t initrdStart = 0, uint64_t initrdSize = 0);
+    static bool generateAcpiTables(const LinuxBootConfig& config, NativeMemory& memory, uint64_t acpiBase);
 };
 
 #endif // NATIVE_LINUX_BOOT_H

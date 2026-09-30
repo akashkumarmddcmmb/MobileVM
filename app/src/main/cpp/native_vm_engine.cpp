@@ -3,6 +3,11 @@
 #include <cstring>
 #include <sstream>
 #include <iomanip>
+#include <android/log.h>
+
+#define VM_LOG_TAG "MobileVM-NativeEngine"
+#define NLOGI(...) __android_log_print(ANDROID_LOG_INFO, VM_LOG_TAG, __VA_ARGS__)
+#define NLOGE(...) __android_log_print(ANDROID_LOG_ERROR, VM_LOG_TAG, __VA_ARGS__)
 
 NativeVMEngine::NativeVMEngine(
     size_t ramSizeMb,
@@ -23,6 +28,8 @@ NativeVMEngine::NativeVMEngine(
     memory(ramSizeMb),
     state(VMNativeState::CREATED) {
 
+    std::lock_guard<std::recursive_mutex> lock(engineMutex);
+
     bootConfig.kernelPath = kernelPath;
     bootConfig.initramfsPath = initramfsPath;
     bootConfig.cmdline = cmdline;
@@ -42,7 +49,13 @@ bool NativeVMEngine::loadBootPayload() {
     if (!cpu) return false;
 
     std::string bootLog;
-    bool ok = NativeLinuxBootLoader::loadLinuxGuest(bootConfig, memory, *cpu, devices, bootLog);
+    bool ok = false;
+    if (!bootConfig.kernelPath.empty()) {
+        ok = NativeLinuxBootLoader::loadLinuxGuest(bootConfig, memory, *cpu, devices, bootLog);
+    } else {
+        ok = NativeLinuxBootLoader::loadWindowsGuest(bootConfig, diskImagePath, memory, *cpu, devices, bootLog);
+    }
+
     if (!ok) {
         // Report exact missing component to the virtual UART console
         for (char c : bootLog) {
@@ -60,6 +73,8 @@ bool NativeVMEngine::loadBootPayload() {
 }
 
 bool NativeVMEngine::configure() {
+    std::lock_guard<std::recursive_mutex> lock(engineMutex);
+
     if (!memory.isAllocated()) {
         backendStatus = memory.getAllocationError();
         state = VMNativeState::ERROR;
@@ -70,13 +85,24 @@ bool NativeVMEngine::configure() {
 
     if (!diskImagePath.empty()) {
         std::string err;
-        devices.getDisk().openRawDisk(diskImagePath, false, "", err);
+        if (!devices.getDisk().openRawDisk(diskImagePath, false, "", err)) {
+            NLOGE("Failed to attach virtual disk %s: %s", diskImagePath.c_str(), err.c_str());
+            // Partial cleanup: reset devices and memory
+            devices.resetAll();
+            memory.reset();
+            backendStatus = "Virtual disk attach failed: " + err;
+            state = VMNativeState::ERROR;
+            return false;
+        }
     }
 
     if (cpu) cpu->reset();
     bool loaded = loadBootPayload();
     if (!loaded) {
-        // If boot payload failed to load (e.g. missing kernel), flag error state
+        // Partial cleanup: If boot payload failed to load, close disk and reset memory
+        devices.getDisk().closeDisk();
+        devices.resetAll();
+        memory.reset();
         state = VMNativeState::ERROR;
         return false;
     }
@@ -86,12 +112,15 @@ bool NativeVMEngine::configure() {
 }
 
 bool NativeVMEngine::start() {
+    std::lock_guard<std::recursive_mutex> lock(engineMutex);
+
     if (!memory.isAllocated()) {
         backendStatus = memory.getAllocationError();
         state = VMNativeState::ERROR;
         return false;
     }
-    if (state != VMNativeState::CONFIGURED && state != VMNativeState::STOPPED && state != VMNativeState::CREATED) {
+    VMNativeState curState = state.load();
+    if (curState != VMNativeState::CONFIGURED && curState != VMNativeState::STOPPED && curState != VMNativeState::CREATED) {
         return false;
     }
     if (!cpu) {
@@ -105,7 +134,9 @@ bool NativeVMEngine::start() {
 }
 
 bool NativeVMEngine::pause() {
-    if (state == VMNativeState::RUNNING && cpu) {
+    std::lock_guard<std::recursive_mutex> lock(engineMutex);
+
+    if (state.load() == VMNativeState::RUNNING && cpu) {
         state = VMNativeState::PAUSED;
         cpu->setState(NativeCPUState::PAUSED);
         return true;
@@ -114,7 +145,9 @@ bool NativeVMEngine::pause() {
 }
 
 bool NativeVMEngine::resume() {
-    if (cpu) {
+    std::lock_guard<std::recursive_mutex> lock(engineMutex);
+
+    if (cpu && state.load() == VMNativeState::PAUSED) {
         state = VMNativeState::RUNNING;
         cpu->setState(NativeCPUState::RUNNING);
         return true;
@@ -123,6 +156,8 @@ bool NativeVMEngine::resume() {
 }
 
 bool NativeVMEngine::stop() {
+    std::lock_guard<std::recursive_mutex> lock(engineMutex);
+
     state = VMNativeState::STOPPING;
     if (cpu) cpu->setState(NativeCPUState::HALTED);
     devices.getDisk().flush();
@@ -131,26 +166,36 @@ bool NativeVMEngine::stop() {
 }
 
 bool NativeVMEngine::reset() {
+    std::lock_guard<std::recursive_mutex> lock(engineMutex);
+
     stop();
-    configure();
-    start();
-    return true;
+    if (!configure()) {
+        return false;
+    }
+    return start();
 }
 
 void NativeVMEngine::destroy() {
+    std::lock_guard<std::recursive_mutex> lock(engineMutex);
+
     stop();
     devices.getDisk().closeDisk();
     memory.reset();
     devices.resetAll();
+    if (cpu) cpu->reset();
+    state = VMNativeState::STOPPED;
 }
 
 int NativeVMEngine::stepCycles(int maxCycles) {
-    if ((state != VMNativeState::RUNNING && state != VMNativeState::STARTING) || !cpu) {
+    std::lock_guard<std::recursive_mutex> lock(engineMutex);
+
+    VMNativeState curState = state.load();
+    if ((curState != VMNativeState::RUNNING && curState != VMNativeState::STARTING) || !cpu) {
         return 0;
     }
 
     uint64_t executed = cpu->runCycles(memory, devices, static_cast<uint64_t>(maxCycles));
-    if (executed > 0 && state == VMNativeState::STARTING) {
+    if (executed > 0 && state.load() == VMNativeState::STARTING) {
         state = VMNativeState::RUNNING;
     }
 
@@ -172,11 +217,14 @@ VMNativeState NativeVMEngine::getState() const {
 }
 
 std::vector<uint8_t> NativeVMEngine::fetchSerialTx() {
+    std::lock_guard<std::recursive_mutex> lock(engineMutex);
     return devices.getUART().readTxBuffer();
 }
 
 void NativeVMEngine::writeSerialRx(uint8_t byte) {
-    if (state != VMNativeState::RUNNING) {
+    std::lock_guard<std::recursive_mutex> lock(engineMutex);
+
+    if (state.load() != VMNativeState::RUNNING && state.load() != VMNativeState::STARTING) {
         return;
     }
 
@@ -186,13 +234,16 @@ void NativeVMEngine::writeSerialRx(uint8_t byte) {
 }
 
 const uint32_t* NativeVMEngine::getFramebuffer() const {
+    std::lock_guard<std::recursive_mutex> lock(engineMutex);
     return devices.getDisplay().getFramebuffer();
 }
 
 uint32_t NativeVMEngine::getDisplayWidth() const {
+    std::lock_guard<std::recursive_mutex> lock(engineMutex);
     return devices.getDisplay().getWidth();
 }
 
 uint32_t NativeVMEngine::getDisplayHeight() const {
+    std::lock_guard<std::recursive_mutex> lock(engineMutex);
     return devices.getDisplay().getHeight();
 }

@@ -61,7 +61,7 @@ object VMNotificationHelper {
 
         val (statusTitle, statusText) = when (state) {
             VMState.RUNNING -> Pair("VM Running: $vmName", "Backend: $cpuBackend • Console active")
-            VMState.STARTING -> Pair("VM Starting: $vmName", "Initializing CPU registers and guest memory...")
+            VMState.STARTING, VMState.BOOTING -> Pair("VM Starting: $vmName", "Initializing CPU registers and guest memory...")
             VMState.PAUSED -> Pair("VM Paused: $vmName", "Virtual CPU cycles halted • Memory preserved")
             VMState.STOPPING -> Pair("VM Stopping: $vmName", "Syncing disks and releasing hypervisor memory...")
             VMState.ERROR -> Pair("VM Error: $vmName", "Execution halted due to kernel/memory exception")
@@ -73,7 +73,7 @@ object VMNotificationHelper {
             .setContentTitle(statusTitle)
             .setContentText(statusText)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setOngoing(state == VMState.RUNNING || state == VMState.STARTING)
+            .setOngoing(state == VMState.RUNNING || state == VMState.STARTING || state == VMState.BOOTING)
             .setContentIntent(pendingIntent)
             .setAutoCancel(false)
 

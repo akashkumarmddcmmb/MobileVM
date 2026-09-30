@@ -1,6 +1,8 @@
 package com.example.vm.ui
 
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -251,6 +253,8 @@ fun VMControlCenterScreen(
                         }
                     )
                     5 -> BootSettingsTab(
+                        config = config,
+                        viewModel = viewModel,
                         vmState = vmState,
                         bootOrder = bootOrderInput,
                         onBootOrderChange = {
@@ -717,15 +721,41 @@ fun StorageSettingsTab(
 
 @Composable
 fun BootSettingsTab(
+    config: VMConfig,
+    viewModel: VMViewModel,
     vmState: VMState,
     bootOrder: String,
     onBootOrderChange: (String) -> Unit
 ) {
     val isRunning = vmState == VMState.RUNNING
+    val kernelFile = remember(config.kernelImagePath) { if (config.kernelImagePath.isNotBlank()) File(config.kernelImagePath) else null }
+    val initrdFile = remember(config.initramfsPath) { if (config.initramfsPath.isNotBlank()) File(config.initramfsPath) else null }
+    val diskFile = remember(config.diskImagePath) { if (config.diskImagePath.isNotBlank()) File(config.diskImagePath) else null }
+
+    val kernelExists = kernelFile?.exists() == true
+    val initrdExists = initrdFile?.exists() == true
+    val diskExists = diskFile?.exists() == true
+
+    val kernelPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            viewModel.importKernelForConfig(config, uri)
+        }
+    }
+    val initrdPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            viewModel.importInitramfsForConfig(config, uri)
+        }
+    }
+    val diskPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            viewModel.importDiskForConfig(config, uri)
+        }
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Boot Devices Sequence", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Text("Boot Devices & Linux Provisioning", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
 
+        Text("Primary Boot Order", fontSize = 11.sp, color = Color.Gray)
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
                 selected = bootOrder == "VIRTUAL_DISK",
@@ -739,6 +769,129 @@ fun BootSettingsTab(
                 enabled = !isRunning,
                 label = { Text("1st: Virtual CD-ROM (ISO)") }
             )
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+        Text("Linux Guest Artifacts Status", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+
+        // Kernel Card
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF141A23)),
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, if (kernelExists) Color(0xFF232D38) else Color(0x66FF5252)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("ARM64 Linux Kernel (vmlinuz)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(
+                        if (kernelExists) "VERIFIED (${(kernelFile?.length() ?: 0) / 1024} KB)" else "MISSING / NOT CONFIGURED",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (kernelExists) Color(0xFF00E676) else Color(0xFFFF5252)
+                    )
+                }
+                Text(
+                    text = config.kernelImagePath.ifBlank { "(No kernel path configured)" },
+                    fontSize = 10.sp,
+                    color = Color.LightGray,
+                    fontFamily = FontFamily.Monospace
+                )
+                OutlinedButton(
+                    onClick = { kernelPicker.launch("*/*") },
+                    enabled = !isRunning,
+                    modifier = Modifier.fillMaxWidth().height(32.dp).testTag("btn_import_custom_kernel")
+                ) {
+                    Icon(Icons.Default.UploadFile, contentDescription = "Import Kernel", modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Import ARM64 Linux Kernel Image", fontSize = 10.sp)
+                }
+            }
+        }
+
+        // Initramfs Card
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF141A23)),
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, if (initrdExists) Color(0xFF232D38) else Color(0x66FFB74D)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Initramfs / Ramdisk (initrd)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(
+                        if (initrdExists) "VERIFIED (${(initrdFile?.length() ?: 0) / 1024} KB)" else "MISSING / OPTIONAL",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (initrdExists) Color(0xFF00E676) else Color(0xFFFFB74D)
+                    )
+                }
+                Text(
+                    text = config.initramfsPath.ifBlank { "(No initramfs configured)" },
+                    fontSize = 10.sp,
+                    color = Color.LightGray,
+                    fontFamily = FontFamily.Monospace
+                )
+                OutlinedButton(
+                    onClick = { initrdPicker.launch("*/*") },
+                    enabled = !isRunning,
+                    modifier = Modifier.fillMaxWidth().height(32.dp).testTag("btn_import_custom_initrd")
+                ) {
+                    Icon(Icons.Default.UploadFile, contentDescription = "Import Initrd", modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Import Initramfs (CPIO / Gzip)", fontSize = 10.sp)
+                }
+            }
+        }
+
+        // Disk Card
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF141A23)),
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, if (diskExists) Color(0xFF232D38) else Color(0x66FFB74D)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Virtual Disk / Rootfs (vda)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(
+                        if (diskExists) "READY (${(diskFile?.length() ?: 0) / (1024 * 1024)} MB)" else "NOT CREATED",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (diskExists) Color(0xFF00E676) else Color(0xFFFFB74D)
+                    )
+                }
+                Text(
+                    text = config.diskImagePath.ifBlank { "(No disk path configured)" },
+                    fontSize = 10.sp,
+                    color = Color.LightGray,
+                    fontFamily = FontFamily.Monospace
+                )
+                OutlinedButton(
+                    onClick = { diskPicker.launch("*/*") },
+                    enabled = !isRunning,
+                    modifier = Modifier.fillMaxWidth().height(32.dp).testTag("btn_import_custom_disk")
+                ) {
+                    Icon(Icons.Default.UploadFile, contentDescription = "Import Disk", modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Import Disk Image (*.img, *.raw, *.iso)", fontSize = 10.sp)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Button(
+            onClick = {
+                viewModel.provisionDefaultLinuxForConfig(config)
+            },
+            enabled = !isRunning,
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            modifier = Modifier.fillMaxWidth().testTag("btn_provision_linux_default")
+        ) {
+            Icon(Icons.Default.CloudDownload, contentDescription = "Provision", tint = Color.Black)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("1-Click Provision Default Linux ARM64 Files", color = Color.Black, fontWeight = FontWeight.Bold)
         }
     }
 }

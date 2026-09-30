@@ -6,6 +6,7 @@
 #include <memory>
 #include <atomic>
 #include <vector>
+#include <mutex>
 #include "native_memory.h"
 #include "native_cpu_backend.h"
 #include "native_cpu_factory.h"
@@ -22,7 +23,8 @@ enum class VMNativeState {
     STOPPING = 5,
     STOPPED = 6,
     ERROR = 7,
-    NOT_VERIFIED = 8
+    NOT_VERIFIED = 8,
+    BOOTING = 9
 };
 
 class NativeVMEngine {
@@ -68,6 +70,8 @@ public:
     uint32_t getDisplayHeight() const;
 
 private:
+    mutable std::recursive_mutex engineMutex;
+
     size_t ramMb;
     std::string diskImagePath;
     int cores;

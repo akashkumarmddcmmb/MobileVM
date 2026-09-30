@@ -36,7 +36,26 @@ enum class VMErrorCategory(val displayTitle: String) {
     VIRTUAL_DEVICE_NOT_IMPLEMENTED("Virtual Device Not Implemented"),
     PTY_NOT_IMPLEMENTED("Linux PTY Not Implemented"),
     NETWORK_NOT_IMPLEMENTED("Virtual Network Not Implemented"),
-    KVM_NOT_AVAILABLE("KVM Not Available")
+    KVM_NOT_AVAILABLE("KVM Not Available"),
+    WINDOWS_IMAGE_NOT_CONFIGURED("Windows Image Not Configured"),
+    WINDOWS_IMAGE_NOT_FOUND("Windows Image Not Found"),
+    WINDOWS_IMAGE_UNREADABLE("Windows Image Unreadable"),
+    WINDOWS_IMAGE_INVALID("Windows Image Invalid"),
+    WINDOWS_IMAGE_UNSUPPORTED("Windows Image Unsupported"),
+    FIRMWARE_UNAVAILABLE("Firmware Unavailable"),
+    CONFIGURATION_ERROR("Configuration Error"),
+    IMAGE_ERROR("Image Error"),
+    KVM_ERROR("KVM Error"),
+    MEMORY_ERROR("Memory Allocation Error"),
+    VCPU_ERROR("Virtual CPU Error"),
+    DISK_ERROR("Virtual Disk Error"),
+    FIRMWARE_ERROR("Firmware Error"),
+    KERNEL_ERROR("Kernel Error"),
+    INITRAMFS_ERROR("Initramfs Error"),
+    BOOT_ERROR("Boot Error"),
+    LIFECYCLE_ERROR("Lifecycle Operation Error"),
+    TIMEOUT_ERROR("Operation Timeout"),
+    NATIVE_ERROR("Native Engine Error")
 }
 
 /**
@@ -215,6 +234,92 @@ data class VMError(
             summary = "KVM: NOT AVAILABLE",
             technicalDetails = "Kernel virtual machine node /dev/kvm is not exposed by host Android kernel. Reason: $reason",
             suggestedRemedy = "Operating with real ARM64 software-emulation backend."
+        )
+
+        fun windowsImageNotConfigured(details: String = ""): VMError = VMError(
+            category = VMErrorCategory.WINDOWS_IMAGE_NOT_CONFIGURED,
+            summary = "WINDOWS_IMAGE_NOT_CONFIGURED: Windows ARM64 boot media or virtual disk image is not configured.",
+            technicalDetails = if (details.isNotBlank()) details else "No user-supplied Windows ARM64 installation ISO or disk image specified.",
+            suggestedRemedy = "Import a legally obtained Windows 11 on ARM ISO or virtual disk into application storage via the Import Manager."
+        )
+
+        fun windowsImageNotFound(path: String): VMError = VMError(
+            category = VMErrorCategory.WINDOWS_IMAGE_NOT_FOUND,
+            summary = "WINDOWS_IMAGE_NOT_FOUND: Windows image file does not exist on disk.",
+            technicalDetails = "Windows boot image file not found at path: '$path'.",
+            suggestedRemedy = "Re-import the Windows ARM64 installation media into private application storage."
+        )
+
+        fun windowsImageUnreadable(path: String): VMError = VMError(
+            category = VMErrorCategory.WINDOWS_IMAGE_UNREADABLE,
+            summary = "WINDOWS_IMAGE_UNREADABLE: Windows image is not readable.",
+            technicalDetails = "Permission denied or I/O error reading Windows image at: '$path'.",
+            suggestedRemedy = "Verify file permissions or re-select media using Storage Access Framework."
+        )
+
+        fun windowsImageInvalid(path: String, reason: String): VMError = VMError(
+            category = VMErrorCategory.WINDOWS_IMAGE_INVALID,
+            summary = "WINDOWS_IMAGE_INVALID: Windows ARM64 installation media or disk image is invalid or corrupted.",
+            technicalDetails = "Path: '$path'. Reason: $reason",
+            suggestedRemedy = "Ensure the Windows ISO/disk was created for the ARM64 (AArch64) architecture, is non-corrupt, and contains valid GPT/ESP or ISO 9660 volume structures."
+        )
+
+        fun windowsImageUnsupported(path: String, reason: String): VMError = VMError(
+            category = VMErrorCategory.WINDOWS_IMAGE_UNSUPPORTED,
+            summary = "WINDOWS_IMAGE_UNSUPPORTED: Unsupported Windows image format or architecture.",
+            technicalDetails = "Path: '$path'. Reason: $reason",
+            suggestedRemedy = "MobileVM requires authentic ARM64 (AArch64) Windows 11/10 ISO or GPT disk images. x86/x64 images are not supported."
+        )
+
+        fun windowsImageMissing(details: String = ""): VMError = windowsImageNotConfigured(details)
+
+        fun firmwareUnavailable(arch: String, reason: String): VMError = VMError(
+            category = VMErrorCategory.FIRMWARE_UNAVAILABLE,
+            summary = "FIRMWARE_UNAVAILABLE: UEFI/EDK2 Firmware configuration is unavailable for $arch.",
+            technicalDetails = "Firmware setup failure: $reason",
+            suggestedRemedy = "Verify the UEFI EDK2 (QEMU_EFI.fd) firmware image and NVRAM variable store configuration."
+        )
+
+        fun lifecycleError(summary: String, details: String = "", remedy: String = ""): VMError = VMError(
+            category = VMErrorCategory.LIFECYCLE_ERROR,
+            summary = summary,
+            technicalDetails = details,
+            suggestedRemedy = if (remedy.isNotBlank()) remedy else "Wait for the current VM operation to finish before retrying."
+        )
+
+        fun timeoutError(operation: String, details: String = ""): VMError = VMError(
+            category = VMErrorCategory.TIMEOUT_ERROR,
+            summary = "Operation '$operation' timed out.",
+            technicalDetails = "The VM operation '$operation' exceeded the safety timeout threshold. $details",
+            suggestedRemedy = "The VM state has been cleanly reset to STOPPED. Please verify host resources and retry."
+        )
+
+        fun nativeError(operation: String, details: String): VMError = VMError(
+            category = VMErrorCategory.NATIVE_ERROR,
+            summary = "Native hypervisor engine failed during $operation.",
+            technicalDetails = "Native error details: $details",
+            suggestedRemedy = "Check system memory, KVM capability, and restart the VM instance."
+        )
+
+        fun memoryError(reason: String, details: String = ""): VMError = VMError(
+            category = VMErrorCategory.MEMORY_ERROR,
+            summary = "Failed to allocate or map guest physical memory: $reason",
+            technicalDetails = details,
+            suggestedRemedy = "Reduce configured VM RAM size in VM Settings."
+        )
+
+        fun vcpuError(reason: String, details: String = ""): VMError = VMError(
+            category = VMErrorCategory.VCPU_ERROR,
+            summary = "Virtual CPU initialization failed: $reason",
+            technicalDetails = details,
+            suggestedRemedy = "Verify host CPU virtualization support or reduce CPU core count."
+        )
+
+        fun diskError(path: String, reason: String): VMError = VMError(
+            category = VMErrorCategory.DISK_ERROR,
+            summary = "Virtual disk operation failed for '$path': $reason",
+            technicalDetails = "Path: $path. $reason",
+            suggestedRemedy = "Check disk image format, read permissions, and available storage."
         )
     }
 }

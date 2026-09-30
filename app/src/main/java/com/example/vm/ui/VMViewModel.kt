@@ -439,28 +439,98 @@ class VMViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun provisionDefaultLinuxForConfig(config: VMConfig, onComplete: ((Boolean) -> Unit)? = null) {
+        viewModelScope.launch {
+            val result = com.example.vm.guest.linux.LinuxImageProvisioner.provisionDefaultLinuxEnvironment(
+                getApplication(),
+                config.name
+            )
+            when (result) {
+                is com.example.vm.guest.linux.LinuxImageProvisioner.ProvisionResult.Success -> {
+                    val updatedConfig = config.copy(
+                        kernelImagePath = result.kernelPath,
+                        initramfsPath = result.initramfsPath,
+                        diskImagePath = if (config.diskImagePath.isBlank()) result.diskPath else config.diskImagePath
+                    )
+                    saveFullConfig(updatedConfig)
+                    dismissError()
+                    onComplete?.invoke(true)
+                }
+                is com.example.vm.guest.linux.LinuxImageProvisioner.ProvisionResult.Failure -> {
+                    val err = com.example.vm.core.VMError(
+                        category = com.example.vm.core.VMErrorCategory.KERNEL_MISSING,
+                        summary = "Failed to provision default Linux environment: ${result.reason}",
+                        technicalDetails = result.reason,
+                        suggestedRemedy = "Check available storage space or download an official OS image from Guest OS Center."
+                    )
+                    reportError(err)
+                    onComplete?.invoke(false)
+                }
+            }
+        }
+    }
+
+    private val vmOperationMutex = kotlinx.coroutines.sync.Mutex()
+
     fun startVM(config: VMConfig) {
         viewModelScope.launch {
-            val active = _activeVM.value
-            if (active != null) {
-                val err = com.example.vm.core.VMError(
-                    category = com.example.vm.core.VMErrorCategory.EMULATOR_INIT_FAILED,
-                    summary = "A Virtual Machine (${active.config.name}) is already active.",
-                    technicalDetails = "Concurrent VM execution is restricted in this phase. Active VM State: ${active.state.value.name}",
-                    suggestedRemedy = "Shut down '${active.config.name}' before starting '${config.name}'."
+            if (!vmOperationMutex.tryLock()) {
+                val err = com.example.vm.core.VMError.lifecycleError(
+                    summary = "A VM operation is already in progress.",
+                    details = "Please wait for the current action to complete before issuing a new command."
                 )
                 reportError(err)
                 return@launch
             }
+            try {
+                val active = _activeVM.value
+                if (active != null && active.state.value.isActive()) {
+                    val err = com.example.vm.core.VMError(
+                        category = com.example.vm.core.VMErrorCategory.EMULATOR_INIT_FAILED,
+                        summary = "A Virtual Machine (${active.config.name}) is already active.",
+                        technicalDetails = "Concurrent VM execution is restricted in this phase. Active VM State: ${active.state.value.name}",
+                        suggestedRemedy = "Shut down '${active.config.name}' before starting '${config.name}'."
+                    )
+                    reportError(err)
+                    return@launch
+                } else if (active != null) {
+                    // Stale / terminated instance cleanup
+                    active.destroy()
+                }
 
-            val newEngine = VMEngine(getApplication(), config)
-            val err = newEngine.start()
-            if (err != null) {
-                reportError(err)
-                _activeVM.value = newEngine
-            } else {
-                _activeVM.value = newEngine
-                clearErrorMessage()
+                // Auto-provision default Linux files if Linux config has unassigned kernel
+                var effectiveConfig = config
+                val isWindows = effectiveConfig.guestOsType.contains("Windows", ignoreCase = true)
+                if (!isWindows && (effectiveConfig.kernelImagePath.isBlank() || !File(effectiveConfig.kernelImagePath).exists())) {
+                    val defaultKernel = com.example.vm.guest.linux.LinuxImageProvisioner.getKernelFile(getApplication())
+                    val defaultInitrd = com.example.vm.guest.linux.LinuxImageProvisioner.getInitramfsFile(getApplication())
+                    if (!defaultKernel.exists() || !defaultInitrd.exists()) {
+                        com.example.vm.guest.linux.LinuxImageProvisioner.provisionDefaultLinuxEnvironment(
+                            getApplication(),
+                            effectiveConfig.name
+                        )
+                    }
+                    if (defaultKernel.exists()) {
+                        effectiveConfig = effectiveConfig.copy(
+                            kernelImagePath = defaultKernel.absolutePath,
+                            initramfsPath = defaultInitrd.absolutePath
+                        )
+                        repository.updateConfig(effectiveConfig)
+                        _selectedConfig.value = effectiveConfig
+                    }
+                }
+
+                val newEngine = VMEngine(getApplication(), effectiveConfig)
+                val err = newEngine.start()
+                if (err != null) {
+                    reportError(err)
+                    _activeVM.value = newEngine
+                } else {
+                    _activeVM.value = newEngine
+                    clearErrorMessage()
+                }
+            } finally {
+                vmOperationMutex.unlock()
             }
         }
     }
@@ -477,35 +547,77 @@ class VMViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun stopVM() {
-        val active = _activeVM.value
-        if (active != null) {
-            val err = active.stop()
-            if (err != null) {
-                _errorMessage.value = err
-            } else {
-                clearErrorMessage()
+        viewModelScope.launch {
+            vmOperationMutex.lock()
+            try {
+                val active = _activeVM.value
+                if (active != null) {
+                    val err = active.stop()
+                    if (err != null) {
+                        _errorMessage.value = err
+                    } else {
+                        clearErrorMessage()
+                    }
+                }
+            } finally {
+                vmOperationMutex.unlock()
+            }
+        }
+    }
+
+    fun restartVM() {
+        viewModelScope.launch {
+            vmOperationMutex.lock()
+            try {
+                val active = _activeVM.value
+                if (active != null) {
+                    val err = active.restart()
+                    if (err != null) {
+                        reportError(err)
+                    } else {
+                        clearErrorMessage()
+                    }
+                }
+            } finally {
+                vmOperationMutex.unlock()
             }
         }
     }
 
     fun pauseVM() {
-        val active = _activeVM.value
-        if (active != null) {
-            active.pause()
+        viewModelScope.launch {
+            val active = _activeVM.value
+            if (active != null) {
+                active.pause()
+            }
         }
     }
 
     fun resumeVM() {
-        val active = _activeVM.value
-        if (active != null) {
-            active.resume()
+        viewModelScope.launch {
+            val active = _activeVM.value
+            if (active != null) {
+                active.resume()
+            }
         }
     }
 
     fun resetVM() {
-        val active = _activeVM.value
-        if (active != null) {
-            active.reset()
+        viewModelScope.launch {
+            vmOperationMutex.lock()
+            try {
+                val active = _activeVM.value
+                if (active != null) {
+                    val msg = active.reset()
+                    if (msg != null) {
+                        _errorMessage.value = msg
+                    } else {
+                        clearErrorMessage()
+                    }
+                }
+            } finally {
+                vmOperationMutex.unlock()
+            }
         }
     }
 

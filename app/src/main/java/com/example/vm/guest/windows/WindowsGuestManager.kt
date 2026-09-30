@@ -210,4 +210,20 @@ object WindowsGuestManager {
             )
         }
     }
+
+    /**
+     * Imports a user-supplied Windows ARM64 installation ISO or disk image into application private storage.
+     */
+    fun importWindowsBootMedia(
+        context: Context,
+        sourceFile: File,
+        destFilename: String
+    ): com.example.vm.guest.linux.LinuxImageProvisioner.BootFileMetadata {
+        return com.example.vm.guest.linux.LinuxImageProvisioner.importBootFile(
+            context = context,
+            sourceFile = sourceFile,
+            targetSubdir = "guest_os/windows_arm64",
+            destFilename = destFilename
+        )
+    }
 }

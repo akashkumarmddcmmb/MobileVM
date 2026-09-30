@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.vm.core.VMConfig
 import com.example.vm.cpu.GuestArchitecture
+import com.example.vm.guest.linux.LinuxImageProvisioner
 import com.example.vm.guest.os.InstallationMode
 import com.example.vm.guest.os.OSManifest
 import com.example.vm.guest.os.OSManifestRegistry
@@ -229,7 +230,8 @@ fun VMCreatorWizardDialog(
                         Button(
                             onClick = {
                                 val manifest = selectedManifest
-                                val modeStr = if (manifest?.installationMode == InstallationMode.MODE_B_ISO_INSTALLER) {
+                                val isWindows = selectedOsCategory.contains("Windows", ignoreCase = true)
+                                val modeStr = if (isWindows || manifest?.installationMode == InstallationMode.MODE_B_ISO_INSTALLER) {
                                     "MODE_B_ISO_INSTALLER"
                                 } else {
                                     "MODE_A_PREINSTALLED"
@@ -242,42 +244,56 @@ fun VMCreatorWizardDialog(
                                     val disksDir = File(context.filesDir, "app_disks")
                                     if (!disksDir.exists()) disksDir.mkdirs()
                                     File(disksDir, "${vmName.replace("\\s+".toRegex(), "_").lowercase()}_disk.img").absolutePath
-                                } else ""
+                                } else if (isWindows) {
+                                    val disksDir = File(context.filesDir, "app_disks")
+                                    if (!disksDir.exists()) disksDir.mkdirs()
+                                    File(disksDir, "${vmName.replace("\\s+".toRegex(), "_").lowercase()}_sys.img").absolutePath
+                                } else {
+                                    LinuxImageProvisioner.getDefaultDiskFile(context, vmName).absolutePath
+                                }
 
-                                val kernelPath = if (manifest != null) {
+                                val kernelPath = if (isWindows) {
+                                    ""
+                                } else if (manifest != null) {
                                     val files = OSStorageManager.getInstalledFiles(context, manifest)
-                                    files?.first?.absolutePath ?: ""
-                                } else ""
+                                    files?.first?.absolutePath ?: LinuxImageProvisioner.getKernelFile(context).absolutePath
+                                } else {
+                                    LinuxImageProvisioner.getKernelFile(context).absolutePath
+                                }
 
-                                val initrdPath = if (manifest != null) {
+                                val initrdPath = if (isWindows) {
+                                    ""
+                                } else if (manifest != null) {
                                     val files = OSStorageManager.getInstalledFiles(context, manifest)
-                                    files?.second?.absolutePath ?: ""
-                                } else ""
+                                    files?.second?.absolutePath ?: LinuxImageProvisioner.getInitramfsFile(context).absolutePath
+                                } else {
+                                    LinuxImageProvisioner.getInitramfsFile(context).absolutePath
+                                }
 
                                 val config = VMConfig(
-                                    name = vmName.ifBlank { "MobileVM Guest" },
+                                    name = vmName.ifBlank { if (isWindows) "Windows 11 ARM64" else "MobileVM Guest" },
                                     guestOsType = selectedOsCategory,
-                                    osVersion = manifest?.version ?: "24.04 LTS",
+                                    osVersion = if (isWindows) "Windows 11 on ARM" else (manifest?.version ?: "24.04 LTS"),
                                     installationMode = modeStr,
                                     cpuBackendPreference = selectedBackendPref,
                                     bootOrder = bootOrder,
                                     isoPath = if (modeStr == "MODE_B_ISO_INSTALLER" && manifest?.diskUrl?.isNotBlank() == true) manifest.diskUrl else "",
                                     guestArchCode = GuestArchitecture.ARM64.code,
-                                    cpuCores = cpuCores,
-                                    ramSizeMb = ramSizeMb,
-                                    diskSizeGb = storageGb,
+                                    cpuCores = if (isWindows) maxOf(cpuCores, 2) else cpuCores,
+                                    ramSizeMb = if (isWindows) maxOf(ramSizeMb, 2048) else ramSizeMb,
+                                    diskSizeGb = if (isWindows) maxOf(storageGb, 64) else storageGb,
                                     diskImagePath = diskPath,
                                     useHardwareVirtualization = isHwVirt,
                                     networkEnabled = networkMode != "OFF",
                                     networkMode = networkMode,
-                                    hostname = hostname.ifBlank { "mobilevm-guest" },
-                                    username = username.ifBlank { "ubuntu" },
-                                    password = password.ifBlank { "ubuntu" },
+                                    hostname = hostname.ifBlank { if (isWindows) "WIN-ARM64" else "mobilevm-guest" },
+                                    username = username.ifBlank { if (isWindows) "User" else "ubuntu" },
+                                    password = password.ifBlank { if (isWindows) "Password" else "ubuntu" },
                                     sshPublicKey = sshKey,
                                     kernelImagePath = kernelPath,
                                     initramfsPath = initrdPath,
-                                    kernelCmdline = manifest?.defaultKernelCmdline ?: "console=ttyAMA0,115200 root=/dev/vda1 rw init=/init earlycon=pl011,0x09000000",
-                                    consoleDevice = manifest?.consoleDevice ?: "ttyAMA0 (PL011 UART)"
+                                    kernelCmdline = if (isWindows) "" else (manifest?.defaultKernelCmdline ?: "console=ttyAMA0,115200 root=/dev/vda1 rw init=/init earlycon=pl011,0x09000000"),
+                                    consoleDevice = if (isWindows) "VirtIO-GPU Framebuffer" else (manifest?.consoleDevice ?: "ttyAMA0 (PL011 UART)")
                                 )
 
                                 onSaveConfig(config)
@@ -300,6 +316,7 @@ fun VMCreatorWizardDialog(
 fun Step1OsSelection(selectedCategory: String, onSelectCategory: (String) -> Unit) {
     val categories = listOf(
         "Ubuntu",
+        "Windows ARM64",
         "Kali Linux",
         "Debian",
         "Alpine",
@@ -331,6 +348,7 @@ fun Step1OsSelection(selectedCategory: String, onSelectCategory: (String) -> Uni
                 ) {
                     Icon(
                         imageVector = when {
+                            category.contains("Windows") -> Icons.Default.Window
                             category.contains("Kali") -> Icons.Default.Security
                             category.contains("Fedora") || category.contains("Alma") || category.contains("Rocky") -> Icons.Default.Cloud
                             category.contains("Arch") -> Icons.Default.Terminal
@@ -346,6 +364,7 @@ fun Step1OsSelection(selectedCategory: String, onSelectCategory: (String) -> Uni
                         Text(
                             when (category) {
                                 "Ubuntu" -> "Official Canonical Ubuntu Server / Desktop Cloud Images & ISOs"
+                                "Windows ARM64" -> "Microsoft Windows 11 on ARM via UEFI EDK2 & Virtual TPM 2.0 (User ISO/Disk)"
                                 "Kali Linux" -> "Official OffSec Kali Penetration Testing Cloud Images & ISOs"
                                 "Debian" -> "Official Debian 12 (Bookworm) Cloud Images & Netinst ISOs"
                                 "Alpine" -> "Ultra-lightweight musl-based Alpine Linux 3.20 virtualized image"

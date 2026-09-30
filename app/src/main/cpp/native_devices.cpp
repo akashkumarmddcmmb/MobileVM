@@ -93,6 +93,7 @@ bool NativeDeviceManager::isMMIOAddress(uint64_t address) const {
     if (address >= 0x09000000ULL && address < 0x09001000ULL) return true; // PL011 UART
     if (address >= 0x0A000000ULL && address < 0x0A000200ULL) return true; // VirtIO Block
     if (address >= 0x0B000000ULL && address < 0x0B000030ULL) return true; // VirtIO Input
+    if (address >= 0x0FED0000ULL && address < 0x0FED1000ULL) return true; // TPM 2.0 CRB Interface
     if (address >= 0x10000000ULL && address < 0x10400000ULL) return true; // VirtIO GPU Display Framebuffer
     return false;
 }
@@ -371,6 +372,12 @@ bool NativeDeviceManager::handleMMIOWrite32(uint64_t address, uint32_t value, Na
         return true;
     }
 
+    // TPM 2.0 CRB MMIO range: 0x0FED0000 to 0x0FED1000
+    if (address >= 0x0FED0000ULL && address < 0x0FED1000ULL) {
+        // Acknowledge TPM control / command registers without error
+        return true;
+    }
+
     if (address == 0x08000000ULL) {
         if (value == 0x01) powerEvent = NativePowerEvent::PAUSE;
         else if (value == 0x02) powerEvent = NativePowerEvent::SHUTDOWN;
@@ -463,6 +470,22 @@ uint32_t NativeDeviceManager::handleMMIORead32(uint64_t address) {
     }
     if (address >= 0x0B000000ULL && address < 0x0B000030ULL) {
         return inputDevice.handleMMIORead(address - 0x0B000000ULL);
+    }
+    // TPM 2.0 CRB MMIO range: 0x0FED0000 to 0x0FED1000
+    if (address >= 0x0FED0000ULL && address < 0x0FED1000ULL) {
+        uint64_t reg = address - 0x0FED0000ULL;
+        switch (reg) {
+            case 0x0000: return 0x00010000; // TPM Interface ID (CRB active)
+            case 0x000C: return 0x01;       // LOC_STS (Locality 0 granted)
+            case 0x0010: return 0;          // CRB_CTRL_REQ
+            case 0x0014: return 0;          // CRB_CTRL_STS (Idle)
+            case 0x001C: return 0;          // CRB_CTRL_START (Completed)
+            case 0x0028: return 1024;       // CRB_CTRL_CMD_SIZE
+            case 0x002C: return 0x0FED0080; // CRB_CTRL_CMD_LADDR
+            case 0x0034: return 1024;       // CRB_CTRL_RSP_SIZE
+            case 0x0038: return 0x0FED0080; // CRB_CTRL_RSP_ADDR
+            default: return 0;
+        }
     }
     return 0;
 }

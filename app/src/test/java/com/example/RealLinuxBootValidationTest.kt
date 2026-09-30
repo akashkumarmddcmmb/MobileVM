@@ -393,4 +393,205 @@ class RealLinuxBootValidationTest {
         assertEquals(VMState.STOPPED, engine.state.value)
         engine.destroy()
     }
+
+    @Test
+    fun `linux image provisioner successfully creates bootable arm64 kernel initrd and disk`() = runBlocking {
+        val result = com.example.vm.guest.linux.LinuxImageProvisioner.provisionDefaultLinuxEnvironment(
+            context = context,
+            vmName = "TestProvisionLinux",
+            forceRecreate = true
+        )
+
+        assertTrue("Provisioning must succeed", result is com.example.vm.guest.linux.LinuxImageProvisioner.ProvisionResult.Success)
+        val success = result as com.example.vm.guest.linux.LinuxImageProvisioner.ProvisionResult.Success
+
+        val kernelFile = File(success.kernelPath)
+        val initrdFile = File(success.initramfsPath)
+        val diskFile = File(success.diskPath)
+
+        assertTrue("Kernel file must exist", kernelFile.exists())
+        assertTrue("Initrd file must exist", initrdFile.exists())
+        assertTrue("Disk file must exist", diskFile.exists())
+
+        // Verify kernel format
+        val kernelInfo = GuestKernelManager.inspectKernel(kernelFile.absolutePath)
+        assertTrue("Generated kernel must be valid ARM64", kernelInfo.isArm64Valid)
+        assertEquals("ARM64 (AArch64)", kernelInfo.architecture)
+
+        // Verify initramfs format
+        val initrdInfo = GuestInitramfsManager.inspectInitramfs(initrdFile.absolutePath)
+        assertTrue("Generated initramfs must be compressed gzip", initrdInfo.isCompressed)
+        assertTrue("Generated initramfs must contain /init executable", initrdInfo.hasUsableInit)
+
+        // Verify disk format
+        val mbrInfo = diskBackend.inspectMBR(diskFile.absolutePath)
+        assertNotNull("Disk must contain valid partition geometry", mbrInfo)
+
+        // Verify VMStartValidator passes
+        val validation = com.example.vm.core.VMStartValidator.validate(context, success.config)
+        assertTrue("Pre-flight validator must pass for provisioned config", validation is com.example.vm.core.VMStartValidator.ValidationResult.Valid)
+
+        // Test booting the provisioned VM
+        val engine = VMEngine(context, success.config)
+        val bootError = engine.start()
+        assertNull("Starting provisioned Linux VM must succeed with no errors", bootError)
+        assertTrue("Engine state must be RUNNING or STARTING", engine.state.value == VMState.RUNNING || engine.state.value == VMState.STARTING)
+
+        engine.stop()
+        engine.destroy()
+    }
+
+    @Test
+    fun `vm start validator rejects unauthorized path traversal`() {
+        val badConfig = VMConfig(
+            id = 107L,
+            name = "PathTraversalTest",
+            kernelImagePath = "/system/bin/sh", // Outside app storage sandbox
+            ramSizeMb = 1024
+        )
+
+        val validation = com.example.vm.core.VMStartValidator.validate(context, badConfig)
+        assertTrue("Validator must reject unauthorized path traversal", validation is com.example.vm.core.VMStartValidator.ValidationResult.Invalid)
+        val invalid = validation as com.example.vm.core.VMStartValidator.ValidationResult.Invalid
+        assertEquals(com.example.vm.core.VMErrorCategory.KERNEL_MISSING, invalid.error.category)
+        assertTrue(invalid.error.technicalDetails.contains("Security Violation") || invalid.error.technicalDetails.contains("sandbox"))
+    }
+
+    @Test
+    fun `vm start validator rejects missing kernel with clear actionable error`() {
+        val config = VMConfig(
+            id = 108L,
+            name = "MissingKernelTest",
+            kernelImagePath = "",
+            ramSizeMb = 512
+        )
+        val validation = com.example.vm.core.VMStartValidator.validate(context, config)
+        assertTrue("Must be invalid when kernel is missing", validation is com.example.vm.core.VMStartValidator.ValidationResult.Invalid)
+        val err = (validation as com.example.vm.core.VMStartValidator.ValidationResult.Invalid).error
+        assertEquals(com.example.vm.core.VMErrorCategory.KERNEL_MISSING, err.category)
+        assertTrue(err.suggestedRemedy.contains("Import") || err.suggestedRemedy.contains("kernel"))
+    }
+
+    @Test
+    fun `vm start validator rejects empty kernel file`() {
+        val kernelsDir = File(context.filesDir, "guest_kernels").apply { mkdirs() }
+        val emptyKernel = File(kernelsDir, "empty_kernel.img").apply { writeBytes(ByteArray(0)) }
+        val config = VMConfig(
+            id = 109L,
+            name = "EmptyKernelTest",
+            kernelImagePath = emptyKernel.absolutePath,
+            ramSizeMb = 512
+        )
+        val validation = com.example.vm.core.VMStartValidator.validate(context, config)
+        assertTrue("Must be invalid when kernel is empty", validation is com.example.vm.core.VMStartValidator.ValidationResult.Invalid)
+        val err = (validation as com.example.vm.core.VMStartValidator.ValidationResult.Invalid).error
+        assertEquals(com.example.vm.core.VMErrorCategory.KERNEL_MISSING, err.category)
+    }
+
+    @Test
+    fun `vm start validator rejects missing initramfs when path set but non-existent`() {
+        val kernelsDir = File(context.filesDir, "guest_kernels").apply { mkdirs() }
+        val dummyKernel = File(kernelsDir, "valid_header_kernel.img").apply {
+            val header = ByteArray(64)
+            // ARM64 magic "ARM\x64" at offset 0x38 (56)
+            header[56] = 0x41.toByte()
+            header[57] = 0x52.toByte()
+            header[58] = 0x4D.toByte()
+            header[59] = 0x64.toByte()
+            writeBytes(header)
+        }
+
+        val config = VMConfig(
+            id = 110L,
+            name = "MissingInitrdTest",
+            kernelImagePath = dummyKernel.absolutePath,
+            initramfsPath = File(context.filesDir, "non_existent_initrd.cpio.gz").absolutePath,
+            ramSizeMb = 512
+        )
+        val validation = com.example.vm.core.VMStartValidator.validate(context, config)
+        assertTrue("Must be invalid when initramfs is missing", validation is com.example.vm.core.VMStartValidator.ValidationResult.Invalid)
+        val err = (validation as com.example.vm.core.VMStartValidator.ValidationResult.Invalid).error
+        assertEquals(com.example.vm.core.VMErrorCategory.INITRAMFS_MISSING, err.category)
+    }
+
+    @Test
+    fun `vm start validator rejects invalid disk smaller than 512 bytes`() {
+        val kernelsDir = File(context.filesDir, "guest_kernels").apply { mkdirs() }
+        val dummyKernel = File(kernelsDir, "valid_k.img").apply {
+            val header = ByteArray(64)
+            header[56] = 0x41.toByte()
+            header[57] = 0x52.toByte()
+            header[58] = 0x4D.toByte()
+            header[59] = 0x64.toByte()
+            writeBytes(header)
+        }
+        val disksDir = File(context.filesDir, "app_disks").apply { mkdirs() }
+        val tinyDisk = File(disksDir, "tiny_invalid.img").apply {
+            writeBytes(ByteArray(100)) // < 512 bytes
+        }
+
+        val config = VMConfig(
+            id = 111L,
+            name = "TinyDiskTest",
+            kernelImagePath = dummyKernel.absolutePath,
+            diskImagePath = tinyDisk.absolutePath,
+            ramSizeMb = 512
+        )
+        val validation = com.example.vm.core.VMStartValidator.validate(context, config)
+        assertTrue("Must be invalid when disk is smaller than 512 bytes", validation is com.example.vm.core.VMStartValidator.ValidationResult.Invalid)
+        val err = (validation as com.example.vm.core.VMStartValidator.ValidationResult.Invalid).error
+        assertEquals(com.example.vm.core.VMErrorCategory.DISK_INVALID, err.category)
+    }
+
+    @Test
+    fun `linux file import computes metadata and copies to private storage`() {
+        val rawData = "Linux Boot Payload Data Test 12345".toByteArray(Charsets.UTF_8)
+        val tempSource = File(context.cacheDir, "source_payload.bin").apply { writeBytes(rawData) }
+
+        val metadata = com.example.vm.guest.linux.LinuxImageProvisioner.importBootFile(
+            context = context,
+            sourceFile = tempSource,
+            targetSubdir = "imported_payloads",
+            destFilename = "custom_payload.bin"
+        )
+
+        assertNotNull("Import must return metadata", metadata)
+        assertEquals("custom_payload.bin", metadata.fileName)
+        assertEquals(rawData.size.toLong(), metadata.sizeBytes)
+        assertTrue("Imported file must exist", File(metadata.absolutePath).exists())
+        assertEquals(64, metadata.sha256Hex.length) // Valid SHA-256 hash
+    }
+
+    @Test
+    fun `vm start stop restart lifecycle cleanly resets state and releases resources`() = runBlocking {
+        val result = com.example.vm.guest.linux.LinuxImageProvisioner.provisionDefaultLinuxEnvironment(
+            context = context,
+            vmName = "LifecycleCycleTest",
+            forceRecreate = false
+        )
+        assertTrue(result is com.example.vm.guest.linux.LinuxImageProvisioner.ProvisionResult.Success)
+        val config = (result as com.example.vm.guest.linux.LinuxImageProvisioner.ProvisionResult.Success).config
+
+        val engine = VMEngine(context, config)
+        
+        // 1. First Start
+        val err1 = engine.start()
+        assertNull(err1)
+        assertTrue(engine.state.value == VMState.RUNNING || engine.state.value == VMState.STARTING)
+
+        // 2. Stop
+        engine.stop()
+        assertEquals(VMState.STOPPED, engine.state.value)
+
+        // 3. Restart
+        val err2 = engine.start()
+        assertNull(err2)
+        assertTrue(engine.state.value == VMState.RUNNING || engine.state.value == VMState.STARTING)
+
+        // 4. Final Clean Stop & Destroy
+        engine.stop()
+        assertEquals(VMState.STOPPED, engine.state.value)
+        engine.destroy()
+        assertEquals(VMState.STOPPED, engine.state.value)
+    }
 }

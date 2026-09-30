@@ -1,6 +1,8 @@
 #include <jni.h>
 #include <string>
 #include <vector>
+#include <unordered_set>
+#include <mutex>
 #include <android/log.h>
 #include "native_vm_engine.h"
 #include "native_arch.h"
@@ -10,6 +12,20 @@
 #define LOG_TAG "MobileVM-Native"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+// Global thread-safe registry to guarantee pointer validity and avoid use-after-free
+static std::mutex g_engineRegistryMutex;
+static std::unordered_set<NativeVMEngine*> g_activeEngines;
+
+static NativeVMEngine* getValidEngine(jlong handle) {
+    if (handle == 0) return nullptr;
+    NativeVMEngine* ptr = reinterpret_cast<NativeVMEngine*>(handle);
+    std::lock_guard<std::mutex> lock(g_engineRegistryMutex);
+    if (g_activeEngines.find(ptr) != g_activeEngines.end()) {
+        return ptr;
+    }
+    return nullptr;
+}
 
 extern "C" {
 
@@ -43,21 +59,34 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeCreateVM(
 
     GuestArchitecture gArch = static_cast<GuestArchitecture>(guestArchCode);
 
-    NativeVMEngine* engine = new NativeVMEngine(
-        static_cast<size_t>(ramMb),
-        strDiskPath,
-        numCores,
-        gArch,
-        useHardwareVirt == JNI_TRUE,
-        strKernelPath,
-        strInitramfsPath,
-        strCmdline,
-        strConsoleDev
-    );
+    try {
+        NativeVMEngine* engine = new NativeVMEngine(
+            static_cast<size_t>(ramMb),
+            strDiskPath,
+            numCores,
+            gArch,
+            useHardwareVirt == JNI_TRUE,
+            strKernelPath,
+            strInitramfsPath,
+            strCmdline,
+            strConsoleDev
+        );
 
-    LOGI("Native VM Engine created with %d MB RAM, guest arch: %d, virt: %d, kernel: %s at %p",
-         ramMb, guestArchCode, useHardwareVirt, strKernelPath.c_str(), engine);
-    return reinterpret_cast<jlong>(engine);
+        {
+            std::lock_guard<std::mutex> lock(g_engineRegistryMutex);
+            g_activeEngines.insert(engine);
+        }
+
+        LOGI("Native VM Engine created with %d MB RAM, guest arch: %d, virt: %d, kernel: %s at %p",
+             ramMb, guestArchCode, useHardwareVirt, strKernelPath.c_str(), engine);
+        return reinterpret_cast<jlong>(engine);
+    } catch (const std::exception& ex) {
+        LOGE("Exception in nativeCreateVM: %s", ex.what());
+        return 0;
+    } catch (...) {
+        LOGE("Unknown exception in nativeCreateVM");
+        return 0;
+    }
 }
 
 JNIEXPORT jstring JNICALL
@@ -65,6 +94,7 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeVerifyKernelImage(
     JNIEnv* env,
     jobject /* this */,
     jstring kernelPath) {
+    if (!kernelPath) return env->NewStringUTF("Kernel path is null");
     const char* cPath = env->GetStringUTFChars(kernelPath, nullptr);
     if (!cPath) return env->NewStringUTF("Kernel path is null");
     std::string path(cPath);
@@ -83,9 +113,13 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeConfigure(
     JNIEnv* env,
     jobject /* this */,
     jlong handle) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (!engine) return JNI_FALSE;
-    return engine->configure() ? JNI_TRUE : JNI_FALSE;
+    try {
+        return engine->configure() ? JNI_TRUE : JNI_FALSE;
+    } catch (...) {
+        return JNI_FALSE;
+    }
 }
 
 JNIEXPORT jboolean JNICALL
@@ -93,9 +127,13 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeStart(
     JNIEnv* env,
     jobject /* this */,
     jlong handle) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (!engine) return JNI_FALSE;
-    return engine->start() ? JNI_TRUE : JNI_FALSE;
+    try {
+        return engine->start() ? JNI_TRUE : JNI_FALSE;
+    } catch (...) {
+        return JNI_FALSE;
+    }
 }
 
 JNIEXPORT jboolean JNICALL
@@ -103,9 +141,13 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativePause(
     JNIEnv* env,
     jobject /* this */,
     jlong handle) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (!engine) return JNI_FALSE;
-    return engine->pause() ? JNI_TRUE : JNI_FALSE;
+    try {
+        return engine->pause() ? JNI_TRUE : JNI_FALSE;
+    } catch (...) {
+        return JNI_FALSE;
+    }
 }
 
 JNIEXPORT jboolean JNICALL
@@ -113,9 +155,13 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeResume(
     JNIEnv* env,
     jobject /* this */,
     jlong handle) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (!engine) return JNI_FALSE;
-    return engine->resume() ? JNI_TRUE : JNI_FALSE;
+    try {
+        return engine->resume() ? JNI_TRUE : JNI_FALSE;
+    } catch (...) {
+        return JNI_FALSE;
+    }
 }
 
 JNIEXPORT jboolean JNICALL
@@ -123,9 +169,13 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeStop(
     JNIEnv* env,
     jobject /* this */,
     jlong handle) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (!engine) return JNI_FALSE;
-    return engine->stop() ? JNI_TRUE : JNI_FALSE;
+    try {
+        return engine->stop() ? JNI_TRUE : JNI_FALSE;
+    } catch (...) {
+        return JNI_FALSE;
+    }
 }
 
 JNIEXPORT jboolean JNICALL
@@ -133,9 +183,13 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeReset(
     JNIEnv* env,
     jobject /* this */,
     jlong handle) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (!engine) return JNI_FALSE;
-    return engine->reset() ? JNI_TRUE : JNI_FALSE;
+    try {
+        return engine->reset() ? JNI_TRUE : JNI_FALSE;
+    } catch (...) {
+        return JNI_FALSE;
+    }
 }
 
 JNIEXPORT void JNICALL
@@ -143,10 +197,22 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeDestroy(
     JNIEnv* env,
     jobject /* this */,
     jlong handle) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_engineRegistryMutex);
+        NativeVMEngine* ptr = reinterpret_cast<NativeVMEngine*>(handle);
+        if (g_activeEngines.find(ptr) != g_activeEngines.end()) {
+            engine = ptr;
+            g_activeEngines.erase(ptr);
+        }
+    }
     if (engine) {
-        delete engine;
-        LOGI("Native VM Engine destroyed");
+        try {
+            delete engine;
+            LOGI("Native VM Engine safely destroyed: %p", engine);
+        } catch (...) {
+            LOGE("Exception during nativeDestroy");
+        }
     }
 }
 
@@ -156,9 +222,13 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeStepCycles(
     jobject /* this */,
     jlong handle,
     jint maxCycles) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (!engine) return 0;
-    return engine->stepCycles(maxCycles);
+    try {
+        return engine->stepCycles(maxCycles);
+    } catch (...) {
+        return 0;
+    }
 }
 
 JNIEXPORT jint JNICALL
@@ -166,9 +236,13 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeGetState(
     JNIEnv* env,
     jobject /* this */,
     jlong handle) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (!engine) return static_cast<jint>(VMNativeState::ERROR);
-    return static_cast<jint>(engine->getState());
+    try {
+        return static_cast<jint>(engine->getState());
+    } catch (...) {
+        return static_cast<jint>(VMNativeState::ERROR);
+    }
 }
 
 JNIEXPORT jlongArray JNICALL
@@ -176,22 +250,26 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeGetRegisters(
     JNIEnv* env,
     jobject /* this */,
     jlong handle) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (!engine) return nullptr;
 
-    jlongArray result = env->NewLongArray(34);
-    if (!result) return nullptr;
+    try {
+        jlongArray result = env->NewLongArray(34);
+        if (!result) return nullptr;
 
-    const auto& regs = engine->getCPU().getRegisters();
-    jlong temp[34];
-    for (int i = 0; i < 32; i++) {
-        temp[i] = static_cast<jlong>(regs[i]);
+        const auto& regs = engine->getCPU().getRegisters();
+        jlong temp[34];
+        for (int i = 0; i < 32; i++) {
+            temp[i] = static_cast<jlong>(regs[i]);
+        }
+        temp[32] = static_cast<jlong>(engine->getCPU().getPC());
+        temp[33] = static_cast<jlong>(engine->getCPU().getSP());
+
+        env->SetLongArrayRegion(result, 0, 34, temp);
+        return result;
+    } catch (...) {
+        return nullptr;
     }
-    temp[32] = static_cast<jlong>(engine->getCPU().getPC());
-    temp[33] = static_cast<jlong>(engine->getCPU().getSP());
-
-    env->SetLongArrayRegion(result, 0, 34, temp);
-    return result;
 }
 
 JNIEXPORT jbyteArray JNICALL
@@ -199,17 +277,21 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeFetchSerialTx(
     JNIEnv* env,
     jobject /* this */,
     jlong handle) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (!engine) return nullptr;
 
-    std::vector<uint8_t> tx = engine->fetchSerialTx();
-    if (tx.empty()) return nullptr;
+    try {
+        std::vector<uint8_t> tx = engine->fetchSerialTx();
+        if (tx.empty()) return nullptr;
 
-    jbyteArray result = env->NewByteArray(tx.size());
-    if (result) {
-        env->SetByteArrayRegion(result, 0, tx.size(), reinterpret_cast<const jbyte*>(tx.data()));
+        jbyteArray result = env->NewByteArray(tx.size());
+        if (result) {
+            env->SetByteArrayRegion(result, 0, tx.size(), reinterpret_cast<const jbyte*>(tx.data()));
+        }
+        return result;
+    } catch (...) {
+        return nullptr;
     }
-    return result;
 }
 
 JNIEXPORT void JNICALL
@@ -218,9 +300,13 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeWriteSerialRx(
     jobject /* this */,
     jlong handle,
     jbyte rxByte) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (engine) {
-        engine->writeSerialRx(static_cast<uint8_t>(rxByte));
+        try {
+            engine->writeSerialRx(static_cast<uint8_t>(rxByte));
+        } catch (...) {
+            // Ignore
+        }
     }
 }
 
@@ -230,15 +316,19 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeCopyFramebuffer(
     jobject /* this */,
     jlong handle,
     jintArray outPixels) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (!engine || !outPixels) return JNI_FALSE;
 
-    const uint32_t* fb = engine->getFramebuffer();
-    if (!fb) return JNI_FALSE;
+    try {
+        const uint32_t* fb = engine->getFramebuffer();
+        if (!fb) return JNI_FALSE;
 
-    jsize len = env->GetArrayLength(outPixels);
-    env->SetIntArrayRegion(outPixels, 0, len, reinterpret_cast<const jint*>(fb));
-    return JNI_TRUE;
+        jsize len = env->GetArrayLength(outPixels);
+        env->SetIntArrayRegion(outPixels, 0, len, reinterpret_cast<const jint*>(fb));
+        return JNI_TRUE;
+    } catch (...) {
+        return JNI_FALSE;
+    }
 }
 
 JNIEXPORT jboolean JNICALL
@@ -268,7 +358,7 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeIsFallbackEmulation(
     JNIEnv* env,
     jobject /* this */,
     jlong handle) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (!engine) return JNI_FALSE;
     return engine->isFallbackEmulation() ? JNI_TRUE : JNI_FALSE;
 }
@@ -278,7 +368,7 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeGetBackendStatus(
     JNIEnv* env,
     jobject /* this */,
     jlong handle) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (!engine) return env->NewStringUTF("No active VM handle");
     return env->NewStringUTF(engine->getBackendStatus().c_str());
 }
@@ -288,7 +378,7 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeIsHardwareAccelerated(
     JNIEnv* env,
     jobject /* this */,
     jlong handle) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (!engine) return JNI_FALSE;
     return engine->isHardwareAccelerated() ? JNI_TRUE : JNI_FALSE;
 }
@@ -298,7 +388,7 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeGetBackendDescription(
     JNIEnv* env,
     jobject /* this */,
     jlong handle) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (!engine) return env->NewStringUTF("Inactive Engine");
     return env->NewStringUTF(engine->getBackendDescription().c_str());
 }
@@ -312,6 +402,7 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeCreateDiskImage(
     jstring diskPath,
     jlong sizeBytes,
     jboolean sparse) {
+    if (!diskPath) return JNI_FALSE;
     const char* cPath = env->GetStringUTFChars(diskPath, nullptr);
     if (!cPath) return JNI_FALSE;
 
@@ -333,7 +424,7 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeGetDiskSectorCount(
     JNIEnv* env,
     jobject /* this */,
     jlong handle) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (!engine) return 0;
     return static_cast<jlong>(engine->getDevices().getDisk().getSectorCount());
 }
@@ -343,7 +434,7 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeGetDiskReadSectors(
     JNIEnv* env,
     jobject /* this */,
     jlong handle) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (!engine) return 0;
     return static_cast<jlong>(engine->getDevices().getDisk().getTotalSectorsRead());
 }
@@ -353,7 +444,7 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeGetDiskWrittenSectors(
     JNIEnv* env,
     jobject /* this */,
     jlong handle) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (!engine) return 0;
     return static_cast<jlong>(engine->getDevices().getDisk().getTotalSectorsWritten());
 }
@@ -365,6 +456,7 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeReadSectorBytes(
     jstring diskPath,
     jlong lba,
     jint count) {
+    if (!diskPath) return nullptr;
     const char* cPath = env->GetStringUTFChars(diskPath, nullptr);
     if (!cPath) return nullptr;
     std::string path(cPath);
@@ -401,7 +493,7 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeSendTouchEvent(
     jfloat y,
     jfloat pressure,
     jint pointerId) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (engine) {
         engine->getDevices().getInput().postTouchEvent(action, x, y, pressure, pointerId);
     }
@@ -418,7 +510,7 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeSendMouseEvent(
     jint absX,
     jint absY,
     jint wheelDelta) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (engine) {
         engine->getDevices().getInput().postMouseEvent(buttonMask, dx, dy, absX, absY, wheelDelta);
     }
@@ -431,7 +523,7 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeSendKeyEvent(
     jlong handle,
     jint scanCode,
     jboolean isDown) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (engine) {
         engine->getDevices().getInput().postKeyEvent(static_cast<uint16_t>(scanCode), isDown == JNI_TRUE);
     }
@@ -442,7 +534,7 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeGetInputEventCount(
     JNIEnv* env,
     jobject /* this */,
     jlong handle) {
-    NativeVMEngine* engine = reinterpret_cast<NativeVMEngine*>(handle);
+    NativeVMEngine* engine = getValidEngine(handle);
     if (!engine) return 0;
     return static_cast<jlong>(engine->getDevices().getInput().getTotalEventsProcessed());
 }

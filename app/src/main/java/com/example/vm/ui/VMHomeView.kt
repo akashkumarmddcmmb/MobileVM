@@ -687,7 +687,7 @@ fun VMCard(
     val stateColor by animateColorAsState(
         targetValue = when (state) {
             VMState.RUNNING -> Color(0xFF00E676)
-            VMState.STARTING -> Color(0xFF00E5FF)
+            VMState.STARTING, VMState.BOOTING -> Color(0xFF00E5FF)
             VMState.CONFIGURED -> Color(0xFF81D4FA)
             VMState.CREATED -> Color(0xFF81D4FA)
             VMState.PAUSED -> Color(0xFFFFD54F)

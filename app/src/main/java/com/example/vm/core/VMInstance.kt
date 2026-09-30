@@ -329,6 +329,7 @@ class VMInstance(
             5 -> VMState.STOPPING
             6 -> VMState.STOPPED
             8 -> VMState.NOT_VERIFIED
+            9 -> VMState.BOOTING
             else -> VMState.ERROR
         }
     }

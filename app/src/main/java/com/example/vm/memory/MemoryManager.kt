@@ -109,9 +109,9 @@ class MemoryManager(private val context: Context) {
             )
         }
 
-        // Rule 2: Must leave minimum Android OS headroom
+        // Rule 2: Must leave minimum Android OS headroom if requested RAM is large (> 2048MB)
         val remainingAfterAlloc = stats.availableMb - requestedMb
-        if (remainingAfterAlloc < MIN_HOST_HEADROOM_MB) {
+        if (requestedMb > 2048 && remainingAfterAlloc < MIN_HOST_HEADROOM_MB) {
             return SafetyResult.Danger(
                 "Unsafe: Allocating ${ramSizeMb} MB would leave only ${remainingAfterAlloc} MB for Android (minimum ${MIN_HOST_HEADROOM_MB} MB headroom required). Host free RAM is ${stats.availableMb} MB."
             )
