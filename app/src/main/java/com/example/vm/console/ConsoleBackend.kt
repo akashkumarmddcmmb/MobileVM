@@ -146,6 +146,7 @@ class UartPL011ConsoleBackend : ConsoleBackend {
             for (ch in line) {
                 cb(ch.code.toByte())
             }
+            cb('\r'.code.toByte())
             cb('\n'.code.toByte())
         }
     }
