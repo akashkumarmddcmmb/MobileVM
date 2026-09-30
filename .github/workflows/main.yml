@@ -1,4 +1,4 @@
-name: MobileVM Android Build
+name: MobileVM Build and Security
 
 on:
   push:
@@ -15,97 +15,81 @@ on:
 
 permissions:
   contents: read
-  id-token: write
-  attestations: write
+  security-events: write
+  actions: read
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
   JAVA_VERSION: "17"
-  ANDROID_COMPILE_SDK: "36"
+  ANDROID_PLATFORM: "36"
   ANDROID_BUILD_TOOLS: "36.0.0"
-  ANDROID_NDK_VERSION: "26.1.10909125"
+  ANDROID_NDK: "26.1.10909125"
   CMAKE_VERSION: "3.22.1"
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx4g"
 
 jobs:
-  build:
-    name: Build MobileVM APK
+
+  # ==========================================================
+  # CODEQL SECURITY ANALYSIS
+  # ==========================================================
+  codeql:
+    name: CodeQL Security - ${{ matrix.language }}
     runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: java-kotlin
+          - language: c-cpp
 
     steps:
 
-      # ---------------------------------------------------------
-      # 1. Checkout
-      # ---------------------------------------------------------
+      # ------------------------------------------------------
+      # Checkout
+      # ------------------------------------------------------
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
 
-      # ---------------------------------------------------------
-      # 2. Java 17
-      # ---------------------------------------------------------
+      # ------------------------------------------------------
+      # Java
+      # ------------------------------------------------------
       - name: Setup Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
 
 
-      # ---------------------------------------------------------
-      # 3. Android SDK
-      # ---------------------------------------------------------
+      # ------------------------------------------------------
+      # Android SDK
+      # ------------------------------------------------------
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
-        with:
-          cmdline-tools-version: "15859902"
-          accept-android-sdk-licenses: true
-          log-accepted-android-sdk-licenses: false
-          packages: ""
 
 
-      # ---------------------------------------------------------
-      # 4. Install exact Android components required by project
-      # ---------------------------------------------------------
-      - name: Install Android build components
+      # ------------------------------------------------------
+      # Android build components
+      # ------------------------------------------------------
+      - name: Install Android components
         shell: bash
         run: |
           set -euo pipefail
-
-          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}"
-          echo "JAVA_HOME=${JAVA_HOME}"
-
-          sdkmanager --version
 
           yes | sdkmanager --licenses >/dev/null 2>&1 || true
 
-          sdkmanager --install \
+          sdkmanager \
             "platform-tools" \
-            "platforms;android-36" \
-            "build-tools;36.0.0" \
-            "ndk;26.1.10909125" \
-            "cmake;3.22.1"
+            "platforms;android-${ANDROID_PLATFORM}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "ndk;${ANDROID_NDK}" \
+            "cmake;${CMAKE_VERSION}"
 
 
-      # ---------------------------------------------------------
-      # 5. Verify Android SDK
-      # ---------------------------------------------------------
-      - name: Verify Android SDK
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "Installed Android packages:"
-
-          sdkmanager --list_installed | grep -E \
-            "platform-tools|platforms;android-36|build-tools;36.0.0|ndk;26.1.10909125|cmake;3.22.1" \
-            || true
-
-
-      # ---------------------------------------------------------
-      # 6. Verify Gradle wrapper
-      # ---------------------------------------------------------
-      - name: Prepare Gradle wrapper
+      # ------------------------------------------------------
+      # Gradle wrapper
+      # ------------------------------------------------------
+      - name: Verify Gradle wrapper
         shell: bash
         run: |
           set -euo pipefail
@@ -116,70 +100,149 @@ jobs:
 
           chmod +x gradlew
 
-          echo "Gradle wrapper verified."
-
-
-      # ---------------------------------------------------------
-      # 7. Verify required project files
-      # ---------------------------------------------------------
-      - name: Verify project structure
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          required_files=(
-            "settings.gradle.kts"
-            "build.gradle.kts"
-            "gradle.properties"
-            "gradle/libs.versions.toml"
-            "gradlew"
-            "gradle/wrapper/gradle-wrapper.jar"
-            "gradle/wrapper/gradle-wrapper.properties"
-            "app/build.gradle.kts"
-            "app/src/main/AndroidManifest.xml"
-            "app/src/main/cpp/CMakeLists.txt"
-          )
-
-          for file in "${required_files[@]}"; do
-            if [ ! -f "$file" ]; then
-              echo "ERROR: Required file missing: $file"
-              exit 1
-            fi
-          done
-
-          echo "Project structure verified."
-
-
-      # ---------------------------------------------------------
-      # 8. Verify Java + Gradle
-      # ---------------------------------------------------------
-      - name: Verify Java and Gradle
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          java -version
-
           ./gradlew --version
 
 
-      # ---------------------------------------------------------
-      # 9. Verify Gradle configuration
-      # ---------------------------------------------------------
-      - name: Verify Gradle configuration
+      # ------------------------------------------------------
+      # CodeQL initialization
+      #
+      # IMPORTANT:
+      # Manual build is intentional.
+      # No CodeQL autobuild is used.
+      # ------------------------------------------------------
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: manual
+          dependency-caching: true
+
+
+      # ------------------------------------------------------
+      # CodeQL manual Android build
+      #
+      # KSP is NOT called separately.
+      # Gradle invokes KSP through the normal build graph.
+      # ------------------------------------------------------
+      - name: CodeQL manual build
         shell: bash
         run: |
           set -euo pipefail
 
           ./gradlew \
             --no-daemon \
+            --no-configuration-cache \
+            --stacktrace \
+            :app:assembleDebug
+
+
+      # ------------------------------------------------------
+      # CodeQL analysis
+      # ------------------------------------------------------
+      - name: Analyze with CodeQL
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"
+
+
+  # ==========================================================
+  # NORMAL BUILD + TEST
+  # ==========================================================
+  build:
+    name: Build and Test MobileVM
+    runs-on: ubuntu-24.04
+
+    steps:
+
+      # ------------------------------------------------------
+      # Checkout
+      # ------------------------------------------------------
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+
+      # ------------------------------------------------------
+      # Java 17
+      # ------------------------------------------------------
+      - name: Setup Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+
+      # ------------------------------------------------------
+      # Gradle cache
+      # ------------------------------------------------------
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+
+      # ------------------------------------------------------
+      # Android SDK
+      # ------------------------------------------------------
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+
+      # ------------------------------------------------------
+      # Android SDK / NDK / CMake
+      # ------------------------------------------------------
+      - name: Install Android components
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-${ANDROID_PLATFORM}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "ndk;${ANDROID_NDK}" \
+            "cmake;${CMAKE_VERSION}"
+
+
+      # ------------------------------------------------------
+      # Verify project
+      # ------------------------------------------------------
+      - name: Verify project files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f settings.gradle.kts
+          test -f build.gradle.kts
+          test -f gradle.properties
+          test -f gradlew
+          test -f gradle/wrapper/gradle-wrapper.jar
+          test -f gradle/wrapper/gradle-wrapper.properties
+          test -f app/build.gradle.kts
+          test -f app/src/main/AndroidManifest.xml
+
+          chmod +x gradlew
+
+          echo "Project structure OK."
+
+
+      # ------------------------------------------------------
+      # Gradle configuration
+      # ------------------------------------------------------
+      - name: Validate Gradle configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ./gradlew \
+            --no-daemon \
+            --no-configuration-cache \
             --stacktrace \
             help
 
 
-      # ---------------------------------------------------------
-      # 10. Clean
-      # ---------------------------------------------------------
+      # ------------------------------------------------------
+      # Clean
+      # ------------------------------------------------------
       - name: Clean project
         shell: bash
         run: |
@@ -187,53 +250,14 @@ jobs:
 
           ./gradlew \
             --no-daemon \
+            --no-configuration-cache \
             --stacktrace \
             clean
 
 
-      # ---------------------------------------------------------
-      # 11. Compile Kotlin + KSP
-      # ---------------------------------------------------------
-      - name: Compile Kotlin and KSP
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          ./gradlew \
-            --no-daemon \
-            --stacktrace \
-            :app:compileDebugKotlin \
-            :app:kspDebugKotlin
-
-
-      # ---------------------------------------------------------
-      # 12. Fix Robolectric test SDK automatically for CI
-      #
-      # NewFeaturesValidationTest was trying to use the newer
-      # default Android SDK. The project test suite already uses
-      # Robolectric SDK 34 for these tests.
-      #
-      # This creates a CI-only Robolectric configuration so the
-      # source test file does not have to be manually replaced.
-      # ---------------------------------------------------------
-      - name: Configure Robolectric test SDK
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          mkdir -p app/src/test/resources
-
-          cat > app/src/test/resources/robolectric.properties <<'EOF'
-          sdk=34
-          EOF
-
-          echo "Robolectric SDK configured for CI:"
-          cat app/src/test/resources/robolectric.properties
-
-
-      # ---------------------------------------------------------
-      # 13. Run unit tests
-      # ---------------------------------------------------------
+      # ------------------------------------------------------
+      # Unit tests
+      # ------------------------------------------------------
       - name: Run unit tests
         shell: bash
         run: |
@@ -241,27 +265,14 @@ jobs:
 
           ./gradlew \
             --no-daemon \
+            --no-configuration-cache \
             --stacktrace \
             :app:testDebugUnitTest
 
 
-      # ---------------------------------------------------------
-      # 14. Upload test reports even if tests fail
-      # ---------------------------------------------------------
-      - name: Upload test reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: mobilevm-test-reports
-          path: |
-            app/build/reports/tests/
-            app/build/test-results/
-          if-no-files-found: ignore
-
-
-      # ---------------------------------------------------------
-      # 15. Build Debug APK
-      # ---------------------------------------------------------
+      # ------------------------------------------------------
+      # Debug APK
+      # ------------------------------------------------------
       - name: Build Debug APK
         shell: bash
         run: |
@@ -269,13 +280,38 @@ jobs:
 
           ./gradlew \
             --no-daemon \
+            --no-configuration-cache \
             --stacktrace \
             :app:assembleDebug
 
 
-      # ---------------------------------------------------------
-      # 16. Build Release APK
-      # ---------------------------------------------------------
+      # ------------------------------------------------------
+      # Verify Debug APK
+      # ------------------------------------------------------
+      - name: Verify Debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK="$(find app/build/outputs/apk/debug \
+            -type f \
+            -name "*.apk" \
+            | head -n 1 || true)"
+
+          if [ -z "$APK" ]; then
+            echo "::error::Debug APK was not generated."
+            exit 1
+          fi
+
+          echo "Debug APK:"
+          echo "$APK"
+
+          ls -lh "$APK"
+
+
+      # ------------------------------------------------------
+      # Release APK
+      # ------------------------------------------------------
       - name: Build Release APK
         shell: bash
         run: |
@@ -283,108 +319,213 @@ jobs:
 
           ./gradlew \
             --no-daemon \
+            --no-configuration-cache \
             --stacktrace \
             :app:assembleRelease
 
 
-      # ---------------------------------------------------------
-      # 17. Verify APK output
-      # ---------------------------------------------------------
-      - name: Verify APK files
+      # ------------------------------------------------------
+      # Verify Release APK
+      # ------------------------------------------------------
+      - name: Verify Release APK
         shell: bash
         run: |
           set -euo pipefail
 
-          DEBUG_APK="$(
-            find app/build/outputs/apk/debug \
-              -type f \
-              -name "*.apk" \
-              | head -n 1 || true
-          )"
-
-          RELEASE_APK="$(
-            find app/build/outputs/apk/release \
-              -type f \
-              -name "*.apk" \
-              | head -n 1 || true
-          )"
-
-          if [ -z "$DEBUG_APK" ]; then
-            echo "ERROR: Debug APK was not generated."
-            exit 1
-          fi
-
-          if [ -z "$RELEASE_APK" ]; then
-            echo "ERROR: Release APK was not generated."
-            exit 1
-          fi
-
-          echo "Debug APK:"
-          echo "$DEBUG_APK"
-
-          echo "Release APK:"
-          echo "$RELEASE_APK"
-
-
-      # ---------------------------------------------------------
-      # 18. Prepare release artifacts + SHA256
-      # ---------------------------------------------------------
-      - name: Generate SHA-256 checksums
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          rm -rf release-artifacts
-          mkdir -p release-artifacts
-
-          find app/build/outputs/apk \
+          APK="$(find app/build/outputs/apk/release \
             -type f \
             -name "*.apk" \
-            -exec cp {} release-artifacts/ \;
+            | head -n 1 || true)"
 
-          cd release-artifacts
+          if [ -z "$APK" ]; then
+            echo "::error::Release APK was not generated."
+            exit 1
+          fi
 
-          sha256sum *.apk > SHA256SUMS.txt
+          echo "Release APK:"
+          echo "$APK"
 
-          echo "SHA-256 checksums:"
+          ls -lh "$APK"
+
+
+      # ------------------------------------------------------
+      # Prepare artifacts
+      # ------------------------------------------------------
+      - name: Prepare APK artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf artifacts
+          mkdir -p artifacts
+
+          DEBUG_APK="$(find app/build/outputs/apk/debug \
+            -type f \
+            -name "*.apk" \
+            | head -n 1)"
+
+          RELEASE_APK="$(find app/build/outputs/apk/release \
+            -type f \
+            -name "*.apk" \
+            | head -n 1)"
+
+          cp "$DEBUG_APK" artifacts/MobileVM-debug.apk
+          cp "$RELEASE_APK" artifacts/MobileVM-release.apk
+
+          cd artifacts
+
+          sha256sum \
+            MobileVM-debug.apk \
+            MobileVM-release.apk \
+            > SHA256SUMS.txt
+
+          echo "Artifacts:"
+          ls -lh
+
+          echo
+          echo "SHA256:"
           cat SHA256SUMS.txt
 
 
-      # ---------------------------------------------------------
-      # 19. Upload APK artifacts
-      # ---------------------------------------------------------
+      # ------------------------------------------------------
+      # Upload APK artifacts
+      # ------------------------------------------------------
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: mobilevm-apks
-          path: release-artifacts/*.apk
+          name: MobileVM-APKs
+          path: |
+            artifacts/MobileVM-debug.apk
+            artifacts/MobileVM-release.apk
+            artifacts/SHA256SUMS.txt
           if-no-files-found: error
 
 
-      # ---------------------------------------------------------
-      # 20. Upload SHA256
-      # ---------------------------------------------------------
-      - name: Upload SHA-256 checksums
+      # ------------------------------------------------------
+      # Upload reports
+      # ------------------------------------------------------
+      - name: Upload build and test reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mobilevm-sha256
-          path: release-artifacts/SHA256SUMS.txt
-          if-no-files-found: error
+          name: MobileVM-Build-Reports
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: ignore
 
 
-      # ---------------------------------------------------------
-      # 21. Build provenance - Debug APK
-      # ---------------------------------------------------------
-      - name: Attest Debug APK
-        uses: actions/attest-build-provenance@v2
+  # ==========================================================
+  # DEPENDENCY SECURITY
+  # ==========================================================
+  dependency-review:
+    name: Dependency Security Review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: read
+
+    steps:
+
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
         with:
-          subject-path: app/build/outputs/apk/debug/*.apk
+          fail-on-severity: high
 
 
-      # ---------------------------------------------------------
-      # 22. Build provenance - Release APK
-      # ---------------------------------------------------------
-      - name: Attest Release APK
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-path: app/build/outputs/apk/release/*.apk
+  # ==========================================================
+  # SECRET / SECURITY CONFIGURATION CHECK
+  # ==========================================================
+  security-config:
+    name: Security Configuration Check
+    runs-on: ubuntu-24.04
+
+    steps:
+
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+
+      # ------------------------------------------------------
+      # Check for accidentally committed local secrets
+      # ------------------------------------------------------
+      - name: Check repository for obvious secret files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          forbidden_files=(
+            ".env"
+            "local.properties"
+            "keystore.properties"
+          )
+
+          found=0
+
+          for file in "${forbidden_files[@]}"; do
+            if [ -f "$file" ]; then
+              echo "::error::Sensitive local file found in repository: $file"
+              found=1
+            fi
+          done
+
+          if [ "$found" -ne 0 ]; then
+            exit 1
+          fi
+
+          echo "No forbidden local secret files found."
+
+
+      # ------------------------------------------------------
+      # Check for private signing keys
+      # ------------------------------------------------------
+      - name: Check for private key files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if find . \
+            -type f \
+            \( \
+              -name "*.jks" \
+              -o -name "*.keystore" \
+              -o -name "*.p12" \
+              -o -name "*.pfx" \
+            \) \
+            -not -path "./.git/*" \
+            | grep -q .; then
+
+            echo "::error::A signing/private key file was found in the repository."
+            exit 1
+          fi
+
+          echo "No signing key files found."
+
+
+      # ------------------------------------------------------
+      # Check .gitignore
+      # ------------------------------------------------------
+      - name: Verify sensitive files are ignored
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ ! -f .gitignore ]; then
+            echo "::warning::.gitignore is missing."
+            exit 0
+          fi
+
+          echo ".gitignore found."
+
+          grep -q "local.properties" .gitignore \
+            || echo "::warning::local.properties is not explicitly listed in .gitignore."
+
+          grep -q "\.jks" .gitignore \
+            || echo "::warning::JKS files are not explicitly listed in .gitignore."
+
+          grep -q "\.keystore" .gitignore \
+            || echo "::warning::Keystore files are not explicitly listed in .gitignore."
