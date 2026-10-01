@@ -133,15 +133,15 @@ class OSDownloadManager(private val context: Context) {
                     }
                 }
 
-                // 3. Download Disk/ISO image if specified and no standalone kernel
-                if (manifest.kernelUrl.isBlank() && manifest.diskUrl.isNotBlank()) {
+                // 3. Download Disk/ISO image if specified
+                if (manifest.diskUrl.isNotBlank()) {
                     val diskName = if (manifest.format.equals("ISO", ignoreCase = true)) "installer.iso" else "rootfs.img"
                     val diskSuccess = downloadAndVerifyFile(
                         manifest = manifest,
                         urlStr = manifest.diskUrl,
                         targetDir = targetDir,
                         finalName = diskName,
-                        expectedSha256 = "",
+                        expectedSha256 = manifest.expectedDiskSha256,
                         label = if (manifest.format.equals("ISO", ignoreCase = true)) "Installer ISO" else "Disk Image"
                     )
 
@@ -444,21 +444,17 @@ class OSDownloadManager(private val context: Context) {
         val calculatedNormalized = calculatedHash.trim().lowercase(Locale.US)
 
         if (expectedNormalized.isNotEmpty() && calculatedNormalized != expectedNormalized) {
-            if (tempFile.length() > 500_000L) {
-                android.util.Log.w("OSDownloadManager", "Upstream point release update detected. Computed SHA-256=$calculatedNormalized differs from legacy hardcoded hash=$expectedNormalized. Accepting verified image download (${tempFile.length() / (1024*1024)} MB).")
-            } else {
-                tempFile.delete()
-                updateProgress(
-                    manifestId,
-                    OSDownloadProgress(
-                        manifestId = manifestId,
-                        state = OSDownloadState.FAILED,
-                        statusMessage = "CHECKSUM_FAILED: Verification failed: SHA-256 mismatch.",
-                        errorMessage = "Verification failed: SHA-256 mismatch.\nExpected: $expectedNormalized\nComputed: $calculatedNormalized"
-                    )
+            tempFile.delete()
+            updateProgress(
+                manifestId,
+                OSDownloadProgress(
+                    manifestId = manifestId,
+                    state = OSDownloadState.FAILED,
+                    statusMessage = "CHECKSUM_FAILED: Verification failed: SHA-256 mismatch.",
+                    errorMessage = "Verification failed: SHA-256 mismatch.\nExpected: $expectedNormalized\nComputed: $calculatedNormalized"
                 )
-                return@withContext false
-            }
+            )
+            return@withContext false
         }
 
         // Atomic move to final verified file

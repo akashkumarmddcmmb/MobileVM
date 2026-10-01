@@ -239,33 +239,29 @@ fun VMCreatorWizardDialog(
 
                                 val isHwVirt = selectedBackendPref != "ARM64_SOFTWARE_EMULATOR"
 
-                                val diskPath = if (manifest != null) {
-                                    val files = OSStorageManager.getInstalledFiles(context, manifest)
-                                    val disksDir = File(context.filesDir, "app_disks")
-                                    if (!disksDir.exists()) disksDir.mkdirs()
-                                    File(disksDir, "${vmName.replace("\\s+".toRegex(), "_").lowercase()}_disk.img").absolutePath
-                                } else if (isWindows) {
-                                    val disksDir = File(context.filesDir, "app_disks")
-                                    if (!disksDir.exists()) disksDir.mkdirs()
+                                val installedFiles = if (manifest != null) OSStorageManager.getInstalledFiles(context, manifest) else null
+
+                                val diskPath = if (isWindows) {
+                                    val disksDir = File(context.filesDir, "app_disks").apply { if (!exists()) mkdirs() }
                                     File(disksDir, "${vmName.replace("\\s+".toRegex(), "_").lowercase()}_sys.img").absolutePath
+                                } else if (installedFiles?.diskFile != null && installedFiles.diskFile.exists()) {
+                                    installedFiles.diskFile.absolutePath
                                 } else {
                                     LinuxImageProvisioner.getDefaultDiskFile(context, vmName).absolutePath
                                 }
 
                                 val kernelPath = if (isWindows) {
                                     ""
-                                } else if (manifest != null) {
-                                    val files = OSStorageManager.getInstalledFiles(context, manifest)
-                                    files?.first?.absolutePath ?: LinuxImageProvisioner.getKernelFile(context).absolutePath
+                                } else if (installedFiles?.kernelFile != null && installedFiles.kernelFile.exists()) {
+                                    installedFiles.kernelFile.absolutePath
                                 } else {
                                     LinuxImageProvisioner.getKernelFile(context).absolutePath
                                 }
 
                                 val initrdPath = if (isWindows) {
                                     ""
-                                } else if (manifest != null) {
-                                    val files = OSStorageManager.getInstalledFiles(context, manifest)
-                                    files?.second?.absolutePath ?: LinuxImageProvisioner.getInitramfsFile(context).absolutePath
+                                } else if (installedFiles?.initrdFile != null && installedFiles.initrdFile.exists()) {
+                                    installedFiles.initrdFile.absolutePath
                                 } else {
                                     LinuxImageProvisioner.getInitramfsFile(context).absolutePath
                                 }

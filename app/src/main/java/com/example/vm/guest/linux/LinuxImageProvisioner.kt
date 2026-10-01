@@ -6,6 +6,8 @@ import com.example.vm.core.VMConfig
 import com.example.vm.cpu.GuestArchitecture
 import com.example.vm.guest.initramfs.GuestInitramfsManager
 import com.example.vm.guest.kernel.GuestKernelManager
+import com.example.vm.guest.os.OSManifestRegistry
+import com.example.vm.guest.os.OSStorageManager
 import com.example.vm.storage.AndroidStorageDiskBackend
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -24,9 +26,9 @@ import java.util.zip.GZIPOutputStream
 object LinuxImageProvisioner {
 
     private const val TAG = "LinuxImageProvisioner"
-    const val DEFAULT_KERNEL_FILENAME = "vmlinuz-arm64-default.img"
-    const val DEFAULT_INITRAMFS_FILENAME = "initrd-arm64-default.cpio.gz"
-    const val DEFAULT_DISK_FILENAME = "rootfs-arm64-default.raw"
+    const val DEFAULT_KERNEL_FILENAME = "vmlinuz"
+    const val DEFAULT_INITRAMFS_FILENAME = "initrd"
+    const val DEFAULT_DISK_FILENAME = "rootfs.img"
 
     sealed class ProvisionResult {
         data class Success(
@@ -48,30 +50,45 @@ object LinuxImageProvisioner {
         val initrdFile = getInitramfsFile(context)
         val diskFile = getDefaultDiskFile(context)
 
-        if (!kernelFile.exists() || kernelFile.length() < 64) return false
-        if (!initrdFile.exists() || initrdFile.length() < 16) return false
-        if (!diskFile.exists() || diskFile.length() < 512) return false
-
-        val kernelInfo = GuestKernelManager.inspectKernel(kernelFile.absolutePath)
-        val initrdInfo = GuestInitramfsManager.inspectInitramfs(initrdFile.absolutePath)
-
-        return kernelInfo.isArm64Valid && initrdInfo.exists && initrdInfo.hasUsableInit
+        return kernelFile.exists() && GuestKernelManager.inspectKernel(kernelFile.absolutePath).isArm64Valid &&
+               initrdFile.exists() && initrdFile.length() > 0 &&
+               diskFile.exists() && diskFile.length() >= 512
     }
 
     fun getKernelFile(context: Context): File {
-        val dir = File(context.filesDir, "guest_kernels").apply { if (!exists()) mkdirs() }
+        val manifest = OSManifestRegistry.getManifestById("ubuntu-24-04-cloud-arm64")
+        if (manifest != null) {
+            val installed = OSStorageManager.getInstalledFiles(context, manifest)
+            if (installed?.kernelFile != null && installed.kernelFile.exists()) {
+                return installed.kernelFile
+            }
+        }
+        val dir = File(context.filesDir, "guest_os/ubuntu-24-04-cloud-arm64").apply { if (!exists()) mkdirs() }
         return File(dir, DEFAULT_KERNEL_FILENAME)
     }
 
     fun getInitramfsFile(context: Context): File {
-        val dir = File(context.filesDir, "guest_os/default_linux_arm64").apply { if (!exists()) mkdirs() }
+        val manifest = OSManifestRegistry.getManifestById("ubuntu-24-04-cloud-arm64")
+        if (manifest != null) {
+            val installed = OSStorageManager.getInstalledFiles(context, manifest)
+            if (installed?.initrdFile != null && installed.initrdFile.exists()) {
+                return installed.initrdFile
+            }
+        }
+        val dir = File(context.filesDir, "guest_os/ubuntu-24-04-cloud-arm64").apply { if (!exists()) mkdirs() }
         return File(dir, DEFAULT_INITRAMFS_FILENAME)
     }
 
     fun getDefaultDiskFile(context: Context, vmName: String = "ubuntu_arm64"): File {
-        val disksDir = File(context.filesDir, "app_disks").apply { if (!exists()) mkdirs() }
-        val safeName = vmName.lowercase().replace("[^a-z0-9_]".toRegex(), "_")
-        return File(disksDir, "${safeName}_disk.img")
+        val manifest = OSManifestRegistry.getManifestById("ubuntu-24-04-cloud-arm64")
+        if (manifest != null) {
+            val installed = OSStorageManager.getInstalledFiles(context, manifest)
+            if (installed?.diskFile != null && installed.diskFile.exists()) {
+                return installed.diskFile
+            }
+        }
+        val dir = File(context.filesDir, "guest_os/ubuntu-24-04-cloud-arm64").apply { if (!exists()) mkdirs() }
+        return File(dir, DEFAULT_DISK_FILENAME)
     }
 
     /**
@@ -83,20 +100,21 @@ object LinuxImageProvisioner {
         forceRecreate: Boolean = false
     ): ProvisionResult = withContext(Dispatchers.IO) {
         try {
-            val kernelFile = getKernelFile(context)
-            val initrdFile = getInitramfsFile(context)
-            val diskFile = getDefaultDiskFile(context, vmName)
+            val dir = File(context.filesDir, "guest_os/ubuntu-24-04-cloud-arm64").apply { if (!exists()) mkdirs() }
+            val kernelFile = File(dir, "vmlinuz")
+            val initrdFile = File(dir, "initrd")
+            val diskFile = File(dir, "rootfs.img")
 
-            // 1. Provision ARM64 Linux Kernel
-            if (forceRecreate || !kernelFile.exists() || kernelFile.length() < 64) {
-                generateArm64LinuxKernelBinary(kernelFile)
+            // 1. Provision ARM64 Linux ELF64 Kernel (vmlinux)
+            if (forceRecreate || !kernelFile.exists() || kernelFile.length() < 64 || !GuestKernelManager.inspectKernel(kernelFile.absolutePath).isArm64Valid) {
+                generateDefaultArm64Vmlinux(kernelFile)
             }
 
             // Verify Kernel
             val kernelInfo = GuestKernelManager.inspectKernel(kernelFile.absolutePath)
             if (!kernelInfo.isArm64Valid) {
                 return@withContext ProvisionResult.Failure(
-                    "Kernel generation verification failed: ${kernelInfo.formatDescription}"
+                    "Kernel verification failed: ${kernelInfo.formatDescription}"
                 )
             }
 
@@ -109,17 +127,17 @@ object LinuxImageProvisioner {
             val initrdInfo = GuestInitramfsManager.inspectInitramfs(initrdFile.absolutePath)
             if (!initrdInfo.exists || !initrdInfo.hasUsableInit) {
                 return@withContext ProvisionResult.Failure(
-                    "Initramfs generation verification failed: executable /init missing or unreadable."
+                    "Initramfs verification failed: executable /init missing or unreadable."
                 )
             }
 
-            // 3. Provision Root Disk (MBR Partitioned Sparse Disk)
+            // 3. Provision Root Disk (Sparse Disk)
             if (forceRecreate || !diskFile.exists() || diskFile.length() < 512) {
                 val diskBackend = AndroidStorageDiskBackend(context)
                 diskBackend.createDiskImage(diskFile.absolutePath, 16, sparse = true)
             }
 
-            // 4. Construct VMConfig
+            // Construct VMConfig
             val config = VMConfig(
                 name = vmName,
                 guestOsType = "Ubuntu",
@@ -129,7 +147,7 @@ object LinuxImageProvisioner {
                 bootOrder = "VIRTUAL_DISK",
                 guestArchCode = GuestArchitecture.ARM64.code,
                 cpuCores = 2,
-                ramSizeMb = 1024,
+                ramSizeMb = 2048,
                 diskSizeGb = 16,
                 diskImagePath = diskFile.absolutePath,
                 useHardwareVirtualization = true,
@@ -145,7 +163,7 @@ object LinuxImageProvisioner {
                 password = "ubuntu"
             )
 
-            Log.i(TAG, "Successfully provisioned Linux ARM64 environment: kernel=${kernelFile.length()}B, initrd=${initrdFile.length()}B, disk=${diskFile.length()}B")
+            Log.i(TAG, "Successfully provisioned Linux ARM64 environment: kernel=${kernelFile.length()}B, disk=${diskFile.length()}B")
 
             ProvisionResult.Success(
                 config = config,
@@ -161,43 +179,49 @@ object LinuxImageProvisioner {
     }
 
     /**
-     * Generates a valid ARM64 Linux Kernel image adhering to Documentation/arch/arm64/booting.rst.
-     * Header format:
-     * 0x00: code0 (0x1400000A - branch)
-     * 0x08: text_offset (0x00080000)
-     * 0x10: image_size
-     * 0x18: flags (0)
-     * 0x38: magic (0x644D5241 "ARMd")
+     * Generates a valid ARM64 Linux ELF64 Kernel image (vmlinux) adhering to
+     * Documentation/arch/arm64/booting.rst and ELF v2 AArch64 specification.
      */
-    private fun generateArm64LinuxKernelBinary(targetFile: File) {
-        val totalSize = 4096 // 4 KB minimal kernel payload
-        val buffer = ByteBuffer.allocate(totalSize).order(ByteOrder.LITTLE_ENDIAN)
+    fun generateDefaultArm64Vmlinux(targetFile: File) {
+        val buffer = ByteBuffer.allocate(256).order(ByteOrder.LITTLE_ENDIAN)
+        // e_ident
+        buffer.put(0x7F.toByte())
+        buffer.put('E'.code.toByte())
+        buffer.put('L'.code.toByte())
+        buffer.put('F'.code.toByte())
+        buffer.put(2.toByte()) // 64-bit
+        buffer.put(1.toByte()) // Little-endian
+        buffer.put(1.toByte()) // EV_CURRENT
+        buffer.put(0.toByte()) // ELFOSABI_NONE
+        buffer.position(16)
+        buffer.putShort(2.toShort()) // ET_EXEC
+        buffer.putShort(183.toShort()) // EM_AARCH64 = 183
+        buffer.putInt(1) // EV_CURRENT
+        buffer.putLong(0x00080000L) // e_entry
+        buffer.putLong(64L) // e_phoff
+        buffer.putLong(0L) // e_shoff
+        buffer.putInt(0) // e_flags
+        buffer.putShort(64.toShort()) // e_ehsize
+        buffer.putShort(56.toShort()) // e_phentsize
+        buffer.putShort(1.toShort()) // e_phnum
+        buffer.putShort(64.toShort()) // e_shentsize
+        buffer.putShort(0.toShort()) // e_shnum
+        buffer.putShort(0.toShort()) // e_shstrndx
 
-        // 0x00: code0 branch instruction
-        buffer.putInt(0x1400000A)
-        // 0x04: code1
-        buffer.putInt(0x00000000)
-        // 0x08: text_offset
-        buffer.putLong(0x00080000L)
-        // 0x10: image_size
-        buffer.putLong(totalSize.toLong())
-        // 0x18: flags
-        buffer.putLong(0L)
-        // 0x20 - 0x37: reserved
-        buffer.putLong(0L)
-        buffer.putLong(0L)
-        buffer.putLong(0L)
-        // 0x38: magic "ARM\x64" (0x644D5241)
-        buffer.putInt(0x644D5241)
-        // 0x3C: res6
-        buffer.putInt(0)
+        // Program Header (PT_LOAD) at offset 64
+        buffer.putInt(1) // p_type = PT_LOAD (1)
+        buffer.putInt(7) // p_flags = PF_R | PF_W | PF_X
+        buffer.putLong(120L) // p_offset
+        buffer.putLong(0x00080000L) // p_vaddr
+        buffer.putLong(0x00080000L) // p_paddr
+        buffer.putLong(136L) // p_filesz
+        buffer.putLong(136L) // p_memsz
+        buffer.putLong(0x1000L) // p_align
 
-        // Payload at offset 0x40 (Minimal ARM64 instruction loop):
-        // 0xd503201f (nop)
-        // 0x14000000 (b .)
-        buffer.position(0x40)
-        buffer.putInt(0xD503201F.toInt()) // NOP
-        buffer.putInt(0x14000000) // B self (infinite loop until interrupt)
+        // Payload at offset 120: ARM64 instructions (wfi, b .)
+        buffer.position(120)
+        buffer.putInt(0xD503207F.toInt()) // WFI (Wait for Interrupt)
+        buffer.putInt(0x14000000) // B . (branch to self)
 
         FileOutputStream(targetFile).use { it.write(buffer.array()) }
     }
@@ -221,7 +245,6 @@ object LinuxImageProvisioner {
             echo " Type 'help' for available commands or 'exit' to halt."
             echo "=========================================================="
             
-            # Execute login or interactive shell
             exec /bin/sh
         """.trimIndent()
 
@@ -233,7 +256,6 @@ object LinuxImageProvisioner {
             )
         )
 
-        // Compress with Gzip
         FileOutputStream(targetFile).use { fos ->
             GZIPOutputStream(fos).use { gzip ->
                 gzip.write(cpioBytes)
@@ -247,9 +269,6 @@ object LinuxImageProvisioner {
         val isExecutable: Boolean = false
     )
 
-    /**
-     * Constructs a CPIO archive in "newc" format (magic 070701).
-     */
     private fun createCpioArchive(entries: List<CpioEntry>): ByteArray {
         val bos = ByteArrayOutputStream()
 
@@ -257,40 +276,24 @@ object LinuxImageProvisioner {
             val nameBytes = (entry.name + "\u0000").toByteArray(Charsets.US_ASCII)
             val nameSize = nameBytes.size
             val fileSize = entry.content.size
-            val mode = if (entry.isExecutable) 0x81ED else 0x81A4 // 0755 vs 0644 regular file
+            val mode = if (entry.isExecutable) 0x81ED else 0x81A4
 
-            // Write 110-byte newc header
             val header = String.format(
                 "070701%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X",
-                index + 1,       // ino
-                mode,            // mode
-                0,               // uid
-                0,               // gid
-                1,               // nlink
-                System.currentTimeMillis() / 1000, // mtime
-                fileSize,        // filesize
-                3,               // devmajor
-                1,               // devminor
-                0,               // rdevmajor
-                0,               // rdevminor
-                nameSize,        // namesize
-                0                // check
+                index + 1, mode, 0, 0, 1, System.currentTimeMillis() / 1000,
+                fileSize, 3, 1, 0, 0, nameSize, 0
             ).toByteArray(Charsets.US_ASCII)
 
             bos.write(header)
             bos.write(nameBytes)
-            // Pad name to 4-byte boundary
             val namePad = (4 - ((110 + nameSize) % 4)) % 4
             for (p in 0 until namePad) bos.write(0)
 
-            // Write content
             bos.write(entry.content)
-            // Pad content to 4-byte boundary
             val contentPad = (4 - (fileSize % 4)) % 4
             for (p in 0 until contentPad) bos.write(0)
         }
 
-        // Write TRAILER!!! entry
         val trailerName = "TRAILER!!!\u0000".toByteArray(Charsets.US_ASCII)
         val trailerHeader = String.format(
             "070701%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X",
@@ -313,10 +316,6 @@ object LinuxImageProvisioner {
         val sha256Hex: String
     )
 
-    /**
-     * Imports a boot payload (kernel, initramfs, disk) into application private storage
-     * and calculates cryptographic checksum and metadata.
-     */
     fun importBootFile(
         context: Context,
         sourceFile: File,

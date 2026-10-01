@@ -1,6 +1,7 @@
 package com.example.vm.guest.os
 
 import android.content.Context
+import com.example.vm.guest.kernel.GuestKernelManager
 import java.io.File
 
 /**
@@ -13,6 +14,13 @@ data class StorageCapacityReport(
     val safetyMarginBytes: Long,
     val isSufficient: Boolean,
     val shortfallBytes: Long
+)
+
+data class InstalledGuestFiles(
+    val kernelFile: File?,
+    val initrdFile: File?,
+    val diskFile: File?,
+    val isoFile: File?
 )
 
 object OSStorageManager {
@@ -83,11 +91,13 @@ object OSStorageManager {
             val tmpFiles = dir.listFiles { _, name -> name.endsWith(".tmp") || name.endsWith(".part") }
             tmpFiles?.forEach { it.delete() }
         } catch (_: Exception) {
+            
         }
     }
 
     /**
-     * Returns true if all required artifacts for an OS manifest exist in private storage.
+     * Returns true if all required artifacts for an OS manifest exist in private storage
+     * and pass binary verification.
      */
     fun isOsInstalled(context: Context, manifest: OSManifest): Boolean {
         return try {
@@ -98,11 +108,14 @@ object OSStorageManager {
             val isoFile = File(dir, "installer.iso")
 
             if (manifest.kernelUrl.isNotBlank()) {
-                val hasKernel = kernelFile.exists() && kernelFile.length() > 0
+                val hasKernel = kernelFile.exists() && kernelFile.length() > 0 && GuestKernelManager.inspectKernel(kernelFile.absolutePath).isArm64Valid
                 val hasInitrd = manifest.initramfsUrl.isBlank() || (initrdFile.exists() && initrdFile.length() > 0)
-                hasKernel && hasInitrd
+                val hasDisk = manifest.diskUrl.isBlank() || (rootfsFile.exists() && rootfsFile.length() > 0)
+                hasKernel && hasInitrd && hasDisk
+            } else if (manifest.format.equals("ISO", ignoreCase = true)) {
+                isoFile.exists() && isoFile.length() > 1024 * 1024
             } else {
-                (rootfsFile.exists() && rootfsFile.length() > 0) || (isoFile.exists() && isoFile.length() > 0)
+                rootfsFile.exists() && rootfsFile.length() > 1024 * 1024
             }
         } catch (_: Exception) {
             false
@@ -110,15 +123,23 @@ object OSStorageManager {
     }
 
     /**
-     * Returns verified kernel and initramfs files if present, or null.
+     * Returns verified kernel, initramfs, disk, or ISO files if present.
      */
-    fun getInstalledFiles(context: Context, manifest: OSManifest): Pair<File, File>? {
+    fun getInstalledFiles(context: Context, manifest: OSManifest): InstalledGuestFiles? {
         return try {
             val dir = getOsPrivateDirectory(context, manifest.id)
             val kernelFile = File(dir, "vmlinuz")
             val initrdFile = File(dir, "initrd")
-            if (kernelFile.exists() && kernelFile.length() > 0 && initrdFile.exists() && initrdFile.length() > 0) {
-                Pair(kernelFile, initrdFile)
+            val rootfsFile = File(dir, "rootfs.img")
+            val isoFile = File(dir, "installer.iso")
+
+            if (isOsInstalled(context, manifest)) {
+                InstalledGuestFiles(
+                    kernelFile = if (kernelFile.exists()) kernelFile else null,
+                    initrdFile = if (initrdFile.exists()) initrdFile else null,
+                    diskFile = if (rootfsFile.exists()) rootfsFile else null,
+                    isoFile = if (isoFile.exists()) isoFile else null
+                )
             } else {
                 null
             }

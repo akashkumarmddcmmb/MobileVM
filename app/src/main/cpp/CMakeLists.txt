@@ -28,4 +28,5 @@ find_library(
 target_link_libraries(
     mobilevm_native
     ${log-lib}
+    z
 )

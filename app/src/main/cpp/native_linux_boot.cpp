@@ -7,6 +7,7 @@
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
+#include <zlib.h>
 
 bool NativeLinuxBootLoader::verifyKernelImage(const std::string& path, Arm64KernelHeader& outHeader, std::string& outError) {
     if (path.empty()) {
@@ -21,26 +22,86 @@ bool NativeLinuxBootLoader::verifyKernelImage(const std::string& path, Arm64Kern
         return false;
     }
 
-    ssize_t bytesRead = read(fd, &outHeader, sizeof(Arm64KernelHeader));
-    close(fd);
-
-    if (bytesRead < static_cast<ssize_t>(sizeof(Arm64KernelHeader))) {
-        outError = "Kernel file is too small to contain a valid ARM64 Image header.";
+    struct stat st;
+    fstat(fd, &st);
+    if (st.st_size < 64) {
+        close(fd);
+        outError = "Kernel file is too small (" + std::to_string(st.st_size) + " bytes) to contain a valid header.";
         return false;
     }
 
-    // Check ARM64 magic: 0x644d5241 ("ARM\x64" / "ARMd")
-    if (outHeader.magic == 0x644d5241) {
+    uint8_t raw[128];
+    std::memset(raw, 0, sizeof(raw));
+    ssize_t bytesRead = read(fd, raw, sizeof(raw));
+    close(fd);
+
+    if (bytesRead < 64) {
+        outError = "Incomplete read of kernel header.";
+        return false;
+    }
+
+    // Check gzip magic (0x1F, 0x8B) for vmlinuz
+    if (raw[0] == 0x1F && raw[1] == 0x8B) {
+        gzFile gz = gzopen(path.c_str(), "rb");
+        if (!gz) {
+            outError = "Failed to open gzip-compressed vmlinuz kernel.";
+            return false;
+        }
+        uint8_t decompressedHeader[128];
+        std::memset(decompressedHeader, 0, sizeof(decompressedHeader));
+        int decompRead = gzread(gz, decompressedHeader, sizeof(decompressedHeader));
+        gzclose(gz);
+
+        if (decompRead < 64) {
+            outError = "Decompressed vmlinuz kernel header is too small.";
+            return false;
+        }
+
+        uint32_t decompMagic = *reinterpret_cast<uint32_t*>(decompressedHeader + 0x38);
+        if (decompMagic == 0x644d5241) { // "ARMd"
+            std::memcpy(&outHeader, decompressedHeader, sizeof(Arm64KernelHeader));
+            return true;
+        }
+
+        if (decompressedHeader[0] == 0x7F && decompressedHeader[1] == 'E' &&
+            decompressedHeader[2] == 'L' && decompressedHeader[3] == 'F' && decompressedHeader[4] == 2) {
+            uint16_t e_machine = *reinterpret_cast<uint16_t*>(decompressedHeader + 0x12);
+            if (e_machine == 183 /* EM_AARCH64 */) {
+                std::memcpy(&outHeader, decompressedHeader, sizeof(Arm64KernelHeader));
+                return true;
+            }
+        }
+
+        outError = "Gzip-compressed vmlinuz does not contain a valid ARM64 Image or vmlinux header.";
+        return false;
+    }
+
+    // Check ARM64 magic: 0x644d5241 ("ARM\x64" / "ARMd") at offset 0x38
+    uint32_t magic = *reinterpret_cast<uint32_t*>(raw + 0x38);
+    if (magic == 0x644d5241) {
+        std::memcpy(&outHeader, raw, sizeof(Arm64KernelHeader));
         return true;
     }
 
     // Check for ELF64 binary header (Linux vmlinux)
-    const uint8_t* raw = reinterpret_cast<const uint8_t*>(&outHeader);
     if (raw[0] == 0x7F && raw[1] == 'E' && raw[2] == 'L' && raw[3] == 'F' && raw[4] == 2 /* 64-bit */) {
-        return true;
+        uint16_t e_machine = *reinterpret_cast<uint16_t*>(raw + 0x12);
+        if (e_machine == 183 /* EM_AARCH64 */) {
+            std::memcpy(&outHeader, raw, sizeof(Arm64KernelHeader));
+            return true;
+        } else if (e_machine == 62 /* EM_X86_64 */) {
+            outError = "x86_64 kernel binary rejected: only ARM64 (AArch64) is supported.";
+            return false;
+        } else if (e_machine == 40 /* EM_ARM */) {
+            outError = "ARM32 kernel binary rejected: only ARM64 (AArch64) is supported.";
+            return false;
+        } else {
+            outError = "Non-ARM64 ELF kernel binary rejected (e_machine=" + std::to_string(e_machine) + ").";
+            return false;
+        }
     }
 
-    outError = "Invalid kernel image header magic (expected ARM64 0x644D5241 or ELF64).";
+    outError = "Invalid kernel image header magic (expected ARM64 0x644D5241, ELF64 ARM64, or ARM64 gzip vmlinuz).";
     return false;
 }
 
@@ -70,7 +131,39 @@ bool NativeLinuxBootLoader::loadCustomKernel(
     const uint8_t* rawHeader = reinterpret_cast<const uint8_t*>(&header);
     bool isElf64 = (rawHeader[0] == 0x7F && rawHeader[1] == 'E' && rawHeader[2] == 'L' && rawHeader[3] == 'F' && rawHeader[4] == 2);
 
-    if (isElf64) {
+    uint8_t magicCheck[2] = {0, 0};
+    lseek(fd, 0, SEEK_SET);
+    read(fd, magicCheck, 2);
+    bool isGzip = (magicCheck[0] == 0x1F && magicCheck[1] == 0x8B);
+
+    if (isGzip) {
+        gzFile gz = gzopen(config.kernelPath.c_str(), "rb");
+        if (gz) {
+            uint64_t textOffset = 0x00080000ULL;
+            uint8_t* dest = memory.getRawBuffer() + textOffset;
+            size_t maxRam = memory.getSize();
+            size_t availableSpace = (maxRam > textOffset) ? (maxRam - textOffset) : 0;
+
+            int totalDecompressed = 0;
+            int chunk = 0;
+            while (availableSpace >= 65536) {
+                chunk = gzread(gz, dest + totalDecompressed, 65536);
+                if (chunk <= 0) break;
+                totalDecompressed += chunk;
+                availableSpace -= chunk;
+            }
+            gzclose(gz);
+
+            if (totalDecompressed > 64) {
+                entryPoint = textOffset;
+                loadSuccess = true;
+                outLog += "[BOOT] Gzip vmlinuz decompressed directly into guest RAM (" +
+                          std::to_string(totalDecompressed / 1024) + " KB decompressed at 0x00080000)\n";
+            }
+        }
+    }
+
+    if (!loadSuccess && isElf64) {
         // Parse ELF64 (vmlinux) header and program headers
         struct Elf64Header {
             uint8_t e_ident[16];

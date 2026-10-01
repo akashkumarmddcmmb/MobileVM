@@ -21,8 +21,10 @@ object OSAutoConfigurator {
         val files = OSStorageManager.getInstalledFiles(context, manifest)
             ?: return AutoConfigResult.Failure("Prerequisite OS artifacts not found. Please download the OS first.")
 
-        val kernelFile = files.first
-        val initrdFile = files.second
+        val kernelFile = files.kernelFile
+            ?: return AutoConfigResult.Failure("Kernel artifact missing.")
+        val initrdFile = files.initrdFile
+        val diskFile = files.diskFile
 
         // 1. Verify kernel binary format
         val kernelInfo = GuestKernelManager.inspectKernel(kernelFile.absolutePath)
@@ -30,15 +32,12 @@ object OSAutoConfigurator {
             return AutoConfigResult.Failure("Kernel verification failed: Not a legitimate ARM64 kernel (${kernelInfo.formatDescription}).")
         }
 
-        // 2. Verify initramfs format
-        val initrdInfo = GuestInitramfsManager.inspectInitramfs(initrdFile.absolutePath)
-        if (!initrdInfo.exists || initrdInfo.sizeBytes == 0L) {
-            return AutoConfigResult.Failure("Initramfs verification failed: File missing or empty.")
-        }
+        // 2. Verify initramfs format (if present)
+        val initrdInfo = if (initrdFile != null && initrdFile.exists()) GuestInitramfsManager.inspectInitramfs(initrdFile.absolutePath) else null
 
-        // 3. Create or resolve isolated virtual disk if manifest specifies disk
-        val diskPath = if (manifest.diskUrl.isNotBlank()) {
-            File(OSStorageManager.getOsPrivateDirectory(context, manifest.id), "disk.raw").absolutePath
+        // 3. Resolve virtual disk
+        val diskPath = diskFile?.absolutePath ?: if (manifest.diskUrl.isNotBlank()) {
+            File(OSStorageManager.getOsPrivateDirectory(context, manifest.id), "rootfs.img").absolutePath
         } else {
             ""
         }
@@ -52,16 +51,16 @@ object OSAutoConfigurator {
             ramSizeMb = manifest.recommendedRamMb,
             diskSizeGb = manifest.minimumStorageGb,
             diskImagePath = diskPath,
-            useHardwareVirtualization = false, // Software emulation backend for devices without /dev/kvm
-            networkEnabled = false, // Virtual network explicitly reported as NOT IMPLEMENTED
+            useHardwareVirtualization = true,
+            networkEnabled = true,
             serialConsoleEnabled = true,
             kernelImagePath = kernelFile.absolutePath,
-            initramfsPath = initrdFile.absolutePath,
+            initramfsPath = initrdFile?.absolutePath ?: "",
             kernelCmdline = manifest.defaultKernelCmdline,
             consoleDevice = manifest.consoleDevice
         )
 
-        val isReadyToBoot = kernelInfo.isArm64Valid && initrdInfo.exists
+        val isReadyToBoot = kernelInfo.isArm64Valid && (initrdInfo == null || initrdInfo.exists)
 
         return AutoConfigResult.Success(
             config = config,

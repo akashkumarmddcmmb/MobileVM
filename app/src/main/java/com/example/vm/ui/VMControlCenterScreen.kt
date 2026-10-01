@@ -752,6 +752,9 @@ fun BootSettingsTab(
         }
     }
 
+    val kernelInfo = remember(config.kernelImagePath) { com.example.vm.guest.kernel.GuestKernelManager.inspectKernel(config.kernelImagePath) }
+    val initrdInfo = remember(config.initramfsPath) { com.example.vm.guest.initramfs.GuestInitramfsManager.inspectInitramfs(config.initramfsPath) }
+
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Boot Devices & Linux Provisioning", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
 
@@ -778,25 +781,23 @@ fun BootSettingsTab(
         Card(
             colors = CardDefaults.cardColors(containerColor = Color(0xFF141A23)),
             shape = RoundedCornerShape(8.dp),
-            border = BorderStroke(1.dp, if (kernelExists) Color(0xFF232D38) else Color(0x66FF5252)),
+            border = BorderStroke(1.dp, if (kernelInfo.isArm64Valid) Color(0xFF00E676) else Color(0x66FF5252)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("ARM64 Linux Kernel (vmlinuz)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("Kernel Asset (ARM64)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     Text(
-                        if (kernelExists) "VERIFIED (${(kernelFile?.length() ?: 0) / 1024} KB)" else "MISSING / NOT CONFIGURED",
+                        if (kernelInfo.isArm64Valid) "VALIDATED ARM64" else "INVALID / UNVERIFIED",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (kernelExists) Color(0xFF00E676) else Color(0xFFFF5252)
+                        color = if (kernelInfo.isArm64Valid) Color(0xFF00E676) else Color(0xFFFF5252)
                     )
                 }
-                Text(
-                    text = config.kernelImagePath.ifBlank { "(No kernel path configured)" },
-                    fontSize = 10.sp,
-                    color = Color.LightGray,
-                    fontFamily = FontFamily.Monospace
-                )
+                Text("Path: ${config.kernelImagePath.ifBlank { "(No kernel path configured)" }}", fontSize = 10.sp, color = Color.LightGray, fontFamily = FontFamily.Monospace)
+                Text("Architecture: ${kernelInfo.architecture} • Format: ${kernelInfo.formatDescription}", fontSize = 10.sp, color = Color.Gray, fontFamily = FontFamily.Monospace)
+                Text("Size: ${kernelFile?.length() ?: 0} Bytes (${(kernelFile?.length() ?: 0) / 1024} KB) • SHA-256: ${computeSha256Snippet(kernelFile)}", fontSize = 9.sp, color = Color.Gray, fontFamily = FontFamily.Monospace)
+
                 OutlinedButton(
                     onClick = { kernelPicker.launch("*/*") },
                     enabled = !isRunning,
@@ -813,25 +814,22 @@ fun BootSettingsTab(
         Card(
             colors = CardDefaults.cardColors(containerColor = Color(0xFF141A23)),
             shape = RoundedCornerShape(8.dp),
-            border = BorderStroke(1.dp, if (initrdExists) Color(0xFF232D38) else Color(0x66FFB74D)),
+            border = BorderStroke(1.dp, if (initrdInfo.hasUsableInit) Color(0xFF00E676) else if (initrdExists) Color(0xFF81D4FA) else Color(0x66FFB74D)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Initramfs / Ramdisk (initrd)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("Initramfs / Ramdisk Asset", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     Text(
-                        if (initrdExists) "VERIFIED (${(initrdFile?.length() ?: 0) / 1024} KB)" else "MISSING / OPTIONAL",
+                        if (initrdInfo.hasUsableInit) "VALIDATED (has /init)" else if (initrdExists) "PRESENT" else "NOT CONFIGURED",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (initrdExists) Color(0xFF00E676) else Color(0xFFFFB74D)
+                        color = if (initrdInfo.hasUsableInit) Color(0xFF00E676) else if (initrdExists) Color(0xFF81D4FA) else Color(0xFFFFB74D)
                     )
                 }
-                Text(
-                    text = config.initramfsPath.ifBlank { "(No initramfs configured)" },
-                    fontSize = 10.sp,
-                    color = Color.LightGray,
-                    fontFamily = FontFamily.Monospace
-                )
+                Text("Path: ${config.initramfsPath.ifBlank { "(No initramfs configured)" }}", fontSize = 10.sp, color = Color.LightGray, fontFamily = FontFamily.Monospace)
+                Text("Size: ${initrdFile?.length() ?: 0} Bytes (${(initrdFile?.length() ?: 0) / 1024} KB) • Format: CPIO Gzip Archive", fontSize = 9.sp, color = Color.Gray, fontFamily = FontFamily.Monospace)
+
                 OutlinedButton(
                     onClick = { initrdPicker.launch("*/*") },
                     enabled = !isRunning,
@@ -848,25 +846,22 @@ fun BootSettingsTab(
         Card(
             colors = CardDefaults.cardColors(containerColor = Color(0xFF141A23)),
             shape = RoundedCornerShape(8.dp),
-            border = BorderStroke(1.dp, if (diskExists) Color(0xFF232D38) else Color(0x66FFB74D)),
+            border = BorderStroke(1.dp, if (diskExists && (diskFile?.length() ?: 0) >= 512) Color(0xFF00E676) else Color(0x66FFB74D)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Virtual Disk / Rootfs (vda)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("Virtual Disk / Rootfs Asset (vda)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     Text(
-                        if (diskExists) "READY (${(diskFile?.length() ?: 0) / (1024 * 1024)} MB)" else "NOT CREATED",
+                        if (diskExists && (diskFile?.length() ?: 0) >= 512) "VALIDATED DISK" else "NOT CREATED / INVALID",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (diskExists) Color(0xFF00E676) else Color(0xFFFFB74D)
+                        color = if (diskExists && (diskFile?.length() ?: 0) >= 512) Color(0xFF00E676) else Color(0xFFFFB74D)
                     )
                 }
-                Text(
-                    text = config.diskImagePath.ifBlank { "(No disk path configured)" },
-                    fontSize = 10.sp,
-                    color = Color.LightGray,
-                    fontFamily = FontFamily.Monospace
-                )
+                Text("Path: ${config.diskImagePath.ifBlank { "(No disk path configured)" }}", fontSize = 10.sp, color = Color.LightGray, fontFamily = FontFamily.Monospace)
+                Text("Format: RAW / VirtIO Block • Allocated Size: ${config.diskSizeGb} GB (${(diskFile?.length() ?: 0) / (1024 * 1024)} MB on host)", fontSize = 9.sp, color = Color.Gray, fontFamily = FontFamily.Monospace)
+
                 OutlinedButton(
                     onClick = { diskPicker.launch("*/*") },
                     enabled = !isRunning,
@@ -1123,4 +1118,22 @@ fun DeleteVmConfirmationDialog(
             }
         }
     )
+}
+
+fun computeSha256Snippet(file: File?): String {
+    if (file == null || !file.exists()) return "N/A"
+    return try {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { stream ->
+            val buf = ByteArray(16384)
+            var bytesRead: Int
+            while (stream.read(buf).also { bytesRead = it } != -1) {
+                digest.update(buf, 0, bytesRead)
+            }
+        }
+        val hash = digest.digest().joinToString("") { "%02x".format(it) }
+        hash.take(16) + "..."
+    } catch (_: Exception) {
+        "Unknown"
+    }
 }
