@@ -976,6 +976,7 @@ fun WindowsARM64TabContent(
 
     var winRamMb by remember { mutableIntStateOf(0) } // Initial state: 0 / Not Set
     var winCores by remember { mutableIntStateOf(0) } // Initial state: 0 / Not Set
+    var winDiskGb by remember { mutableIntStateOf(64) } // Storage disk size in GB
 
     val windowsIsoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -1068,23 +1069,24 @@ fun WindowsARM64TabContent(
                         fontSize = 12.sp, color = Color.LightGray
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Column {
-                            Text("Minimum RAM (OS Req)", fontSize = 10.sp, color = Color.Gray)
-                            Text("4096 MB", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White, fontFamily = FontFamily.Monospace)
-                        }
-                        Column {
-                            Text("Minimum Disk (OS Req)", fontSize = 10.sp, color = Color.Gray)
-                            Text("64 GB", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White, fontFamily = FontFamily.Monospace)
-                        }
-                        Column {
-                            Text("vCPU Cores (OS Req)", fontSize = 10.sp, color = Color.Gray)
-                            Text("2+ Cores", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White, fontFamily = FontFamily.Monospace)
-                        }
-                        Column {
-                            Text("Hypervisor", fontSize = 10.sp, color = Color.Gray)
-                            Text("ARM64 KVM", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00E676), fontFamily = FontFamily.Monospace)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Surface(
+                        color = Color(0xFF0F1722),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Memory, contentDescription = "CPU", tint = Color(0xFF00A4EF), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Virtualization Engine:", fontSize = 11.sp, color = Color.Gray)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("ARM64 KVM / VirtIO", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00E676), fontFamily = FontFamily.Monospace)
+                            }
+                            Text("Custom Hardware Configurable", fontSize = 10.sp, color = Color.LightGray)
                         }
                     }
                 }
@@ -1187,7 +1189,7 @@ fun WindowsARM64TabContent(
 
                                 Text("VM Hardware Configuration (Manual Selection)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
 
-                                Spacer(modifier = Modifier.height(8.dp))
+                                 Spacer(modifier = Modifier.height(8.dp))
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                     Text("vCPU Cores:", fontSize = 11.sp, color = Color.Gray)
                                     Text(
@@ -1198,11 +1200,11 @@ fun WindowsARM64TabContent(
                                     )
                                 }
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    listOf(2, 4, 6, 8).forEach { cores ->
+                                    listOf(1, 2, 4, 6, 8).forEach { cores ->
                                         FilterChip(
                                             selected = winCores == cores,
                                             onClick = { winCores = cores },
-                                            label = { Text("$cores Cores", fontSize = 10.sp) },
+                                            label = { Text("$cores Core${if (cores > 1) "s" else ""}", fontSize = 10.sp) },
                                             modifier = Modifier.testTag("win_cores_chip_$cores")
                                         )
                                     }
@@ -1219,12 +1221,34 @@ fun WindowsARM64TabContent(
                                     )
                                 }
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    listOf(512, 1024, 2048, 3072, 4096, 6144, 7168, 8192).forEach { mb ->
+                                    listOf(1024, 2048, 3072, 4096, 6144, 8192, 12288, 16384).forEach { mb ->
                                         FilterChip(
                                             selected = winRamMb == mb,
                                             onClick = { winRamMb = mb },
-                                            label = { Text(if (mb >= 1024 && mb % 1024 == 0) "${mb / 1024} GB" else if (mb >= 1024) "${mb / 1024.0} GB" else "$mb MB", fontSize = 10.sp) },
+                                            label = { Text("${mb / 1024} GB", fontSize = 10.sp) },
                                             modifier = Modifier.testTag("win_ram_chip_$mb")
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Virtual Storage Disk Size:", fontSize = 11.sp, color = Color.Gray)
+                                    Text(
+                                        "$winDiskGb GB Allocated",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF00E676),
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    listOf(16, 32, 64, 128, 256).forEach { gb ->
+                                        FilterChip(
+                                            selected = winDiskGb == gb,
+                                            onClick = { winDiskGb = gb },
+                                            label = { Text("$gb GB", fontSize = 10.sp) },
+                                            modifier = Modifier.testTag("win_disk_chip_$gb")
                                         )
                                     }
                                 }
@@ -1235,13 +1259,14 @@ fun WindowsARM64TabContent(
                                         onClick = {
                                             winRamMb = 0
                                             winCores = 0
+                                            winDiskGb = 64
                                         },
                                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF5252)),
                                         modifier = Modifier.weight(1f).testTag("btn_reset_win_hardware")
                                     ) {
                                         Icon(Icons.Default.Refresh, contentDescription = "Reset", modifier = Modifier.size(14.dp))
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Reset Configuration", fontSize = 11.sp)
+                                        Text("Reset Config", fontSize = 11.sp)
                                     }
 
                                     Button(
@@ -1258,7 +1283,7 @@ fun WindowsARM64TabContent(
                                                 targetDiskPath = targetDisk,
                                                 allocatedRamMb = winRamMb,
                                                 allocatedCores = winCores,
-                                                diskSizeGb = 64
+                                                diskSizeGb = winDiskGb
                                             )
                                             onCreateWindowsVm(config)
                                         },

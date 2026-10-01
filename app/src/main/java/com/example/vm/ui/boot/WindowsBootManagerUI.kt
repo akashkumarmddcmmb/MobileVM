@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.vm.core.VMBootManager
 import com.example.vm.core.VMConfig
 import com.example.vm.core.VMState
@@ -64,11 +65,20 @@ fun WindowsBootManagerDialog(
 
     val isoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
-            viewModel.attachIsoToConfig(currentConfig, uri) { updatedConfig ->
-                currentConfig = updatedConfig
-            }
+            viewModel.attachAndAutoBootIso(currentConfig, uri, autoStartVm = true)
         }
     }
+
+    val isoSetupProgressState by viewModel.isoSetupProgress.collectAsStateWithLifecycle()
+
+    isoSetupProgressState?.let { progress ->
+        AutoBootIsoSetupDialog(
+            progress = progress,
+            onDismiss = { viewModel.dismissIsoSetupProgress() }
+        )
+    }
+
+    var orderedBootList by remember(bootEntries) { mutableStateOf(bootEntries.toMutableList()) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -90,13 +100,13 @@ fun WindowsBootManagerDialog(
                     }
                     Column {
                         Text(
-                            text = "Windows Boot Manager",
+                            text = "PC BIOS & Boot Manager",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
                         Text(
-                            text = "UEFI v2.8 ARM64 • EDK2 TianoCore NVRAM",
+                            text = "UEFI v2.8 ARM64 • Interactive Boot Order Selection",
                             fontSize = 10.sp,
                             color = Color(0xFF00E676),
                             fontFamily = FontFamily.Monospace
@@ -124,31 +134,38 @@ fun WindowsBootManagerDialog(
                 ) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
-                            text = "Choose an operating system to start or select an installation ISO:",
+                            text = "Standard PC BIOS Boot Sequence (Order of Preference):",
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
+                            fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
                         Text(
-                            text = "Use boot options below to select primary OS boot target, mount installation media, or configure safe boot parameters.",
+                            text = "Use ⬆️ Up and ⬇️ Down controls to reorder virtual hard drives, optical ISOs, and EFI bootloaders in NVRAM boot priority.",
                             fontSize = 10.sp,
                             color = Color.LightGray
                         )
                     }
                 }
 
-                Text("Available Boot Targets", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Selectable Drives & Boot Order Priority", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("NVRAM EDK2", fontSize = 10.sp, color = Color.Gray, fontFamily = FontFamily.Monospace)
+                }
 
-                bootEntries.forEach { entry ->
-                    val isSelected = entry.type == selectedBootType
+                orderedBootList.forEachIndexed { index, entry ->
+                    val isPrimarySelected = entry.type == selectedBootType
                     Card(
                         colors = CardDefaults.cardColors(
-                            containerColor = if (isSelected) Color(0xFF162A3B) else Color(0xFF0F141C)
+                            containerColor = if (isPrimarySelected) Color(0xFF162A3B) else Color(0xFF0F141C)
                         ),
                         shape = RoundedCornerShape(8.dp),
                         border = BorderStroke(
                             1.dp,
-                            if (isSelected) Color(0xFF0078D4) else if (entry.isAvailable) Color(0xFF232D38) else Color(0x33FF5252)
+                            if (isPrimarySelected) Color(0xFF0078D4) else if (entry.isAvailable) Color(0xFF232D38) else Color(0x33FF5252)
                         ),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -159,53 +176,100 @@ fun WindowsBootManagerDialog(
                             }
                             .testTag("boot_entry_${entry.type.name}")
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.weight(1f)) {
-                                Icon(
-                                    imageVector = when (entry.type) {
-                                        VMBootManager.BootDeviceType.WINDOWS_BOOT_MANAGER -> Icons.Default.DesktopWindows
-                                        VMBootManager.BootDeviceType.LINUX_EFI_LOADER -> Icons.Default.Terminal
-                                        VMBootManager.BootDeviceType.INSTALLATION_ISO -> Icons.Default.Album
-                                        VMBootManager.BootDeviceType.INSTALLED_VIRTUAL_DISK -> Icons.Default.Storage
-                                        VMBootManager.BootDeviceType.DIRECT_KERNEL_IMAGE -> Icons.Default.Memory
-                                        VMBootManager.BootDeviceType.RECOVERY_DIAGNOSTICS -> Icons.Default.Build
-                                    },
-                                    contentDescription = entry.title,
-                                    tint = if (entry.isAvailable) Color(0xFF0078D4) else Color.Gray,
-                                    modifier = Modifier.size(22.dp)
-                                )
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                                    Surface(
+                                        color = if (index == 0) Color(0xFF0078D4) else Color(0xFF1E2833),
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            text = "#${index + 1} Boot",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
 
-                                Column {
-                                    Text(
-                                        text = entry.title,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (entry.isAvailable) Color.White else Color.Gray
+                                    Icon(
+                                        imageVector = when (entry.type) {
+                                            VMBootManager.BootDeviceType.WINDOWS_BOOT_MANAGER -> Icons.Default.DesktopWindows
+                                            VMBootManager.BootDeviceType.LINUX_EFI_LOADER -> Icons.Default.Terminal
+                                            VMBootManager.BootDeviceType.INSTALLATION_ISO -> Icons.Default.Album
+                                            VMBootManager.BootDeviceType.INSTALLED_VIRTUAL_DISK -> Icons.Default.Storage
+                                            VMBootManager.BootDeviceType.DIRECT_KERNEL_IMAGE -> Icons.Default.Memory
+                                            VMBootManager.BootDeviceType.RECOVERY_DIAGNOSTICS -> Icons.Default.Build
+                                        },
+                                        contentDescription = entry.title,
+                                        tint = if (entry.isAvailable) Color(0xFF0078D4) else Color.Gray,
+                                        modifier = Modifier.size(20.dp)
                                     )
-                                    Text(
-                                        text = entry.description,
-                                        fontSize = 10.sp,
-                                        color = if (entry.isAvailable) Color.LightGray else Color.DarkGray,
-                                        fontFamily = FontFamily.Monospace
+
+                                    Column {
+                                        Text(
+                                            text = entry.title,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (entry.isAvailable) Color.White else Color.Gray
+                                        )
+                                        Text(
+                                            text = entry.description,
+                                            fontSize = 10.sp,
+                                            color = if (entry.isAvailable) Color.LightGray else Color.DarkGray,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                }
+
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    IconButton(
+                                        onClick = {
+                                            if (index > 0) {
+                                                val list = orderedBootList.toMutableList()
+                                                val temp = list[index]
+                                                list[index] = list[index - 1]
+                                                list[index - 1] = temp
+                                                orderedBootList = list
+                                            }
+                                        },
+                                        enabled = index > 0,
+                                        modifier = Modifier.size(28.dp).testTag("btn_boot_up_$index")
+                                    ) {
+                                        Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up", tint = if (index > 0) Color.White else Color.DarkGray, modifier = Modifier.size(16.dp))
+                                    }
+
+                                    IconButton(
+                                        onClick = {
+                                            if (index < orderedBootList.size - 1) {
+                                                val list = orderedBootList.toMutableList()
+                                                val temp = list[index]
+                                                list[index] = list[index + 1]
+                                                list[index + 1] = temp
+                                                orderedBootList = list
+                                            }
+                                        },
+                                        enabled = index < orderedBootList.size - 1,
+                                        modifier = Modifier.size(28.dp).testTag("btn_boot_down_$index")
+                                    ) {
+                                        Icon(Icons.Default.ArrowDownward, contentDescription = "Move Down", tint = if (index < orderedBootList.size - 1) Color.White else Color.DarkGray, modifier = Modifier.size(16.dp))
+                                    }
+
+                                    RadioButton(
+                                        selected = isPrimarySelected,
+                                        onClick = {
+                                            if (entry.isAvailable) {
+                                                selectedBootType = entry.type
+                                            }
+                                        },
+                                        enabled = entry.isAvailable
                                     )
                                 }
                             }
-
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = {
-                                    if (entry.isAvailable) {
-                                        selectedBootType = entry.type
-                                    }
-                                },
-                                enabled = entry.isAvailable
-                            )
                         }
                     }
                 }
@@ -435,4 +499,102 @@ fun WindowsBootManagerCard(
             }
         }
     }
+}
+
+/**
+ * Automated Windows Setup / OS Boot Manager Progress Dialog.
+ * Shows live step-by-step progress when an ISO file is selected.
+ */
+@Composable
+fun AutoBootIsoSetupDialog(
+    progress: VMViewModel.IsoSetupProgress,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = {
+            if (progress.isComplete || progress.isError) {
+                onDismiss()
+            }
+        },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (progress.isError) Color(0xFFC62828) else Color(0xFF0078D4)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (progress.isError) Icons.Default.Error else Icons.Default.DesktopWindows,
+                        contentDescription = "ISO Setup",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Text(
+                    text = "Windows Setup Pipeline",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = progress.stepName,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (progress.isError) Color(0xFFFF5252) else Color(0xFF00E676)
+                )
+
+                if (!progress.isComplete && !progress.isError) {
+                    LinearProgressIndicator(
+                        progress = { progress.step / 4f },
+                        modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                        color = Color(0xFF0078D4),
+                        trackColor = Color(0xFF141A23)
+                    )
+                }
+
+                Surface(
+                    color = Color(0xFF0D1622),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, if (progress.isError) Color(0xFFFF5252) else Color(0xFF0078D4))
+                ) {
+                    Text(
+                        text = progress.message,
+                        fontSize = 11.sp,
+                        color = Color.LightGray,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+
+                if (progress.isComplete) {
+                    Surface(color = Color(0x3300E676), shape = RoundedCornerShape(6.dp)) {
+                        Text(
+                            text = "✓ ISO attached & VM booted automatically! Windows Setup is now running in the Console.",
+                            fontSize = 11.sp,
+                            color = Color(0xFF00E676),
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (progress.isComplete || progress.isError) {
+                Button(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0078D4))
+                ) {
+                    Text("OK", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            }
+        },
+        containerColor = Color(0xFF080D14),
+        shape = RoundedCornerShape(12.dp)
+    )
 }

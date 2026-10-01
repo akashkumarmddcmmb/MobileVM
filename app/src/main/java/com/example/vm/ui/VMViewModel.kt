@@ -551,6 +551,105 @@ class VMViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    data class IsoSetupProgress(
+        val step: Int,
+        val stepName: String,
+        val message: String,
+        val isComplete: Boolean = false,
+        val isError: Boolean = false
+    )
+
+    val isoSetupProgress = MutableStateFlow<IsoSetupProgress?>(null)
+
+    fun attachAndAutoBootIso(config: VMConfig, uri: android.net.Uri, autoStartVm: Boolean = true) {
+        viewModelScope.launch {
+            try {
+                val context = getApplication<Application>()
+                
+                // Step 1: Inspecting & Importing ISO Media
+                isoSetupProgress.value = IsoSetupProgress(
+                    step = 1,
+                    stepName = "Step 1/4: Inspecting & Mounting ISO Media",
+                    message = "Reading ISO 9660 volume descriptor and verifying ARM64 EFI bootloader..."
+                )
+                
+                val stream = context.contentResolver.openInputStream(uri)
+                if (stream == null) {
+                    isoSetupProgress.value = IsoSetupProgress(step = 1, stepName = "Error", message = "Unable to open selected ISO URI.", isError = true)
+                    return@launch
+                }
+
+                val targetName = "iso_${config.name.replace("\\s+".toRegex(), "_").lowercase()}.iso"
+                val importResult = com.example.vm.guest.os.ImportManager.importImageStream(
+                    context, stream, targetName, com.example.vm.guest.os.InstallationMode.MODE_B_ISO_INSTALLER
+                )
+
+                if (importResult !is com.example.vm.guest.os.ImportResult.Success) {
+                    val failMsg = (importResult as? com.example.vm.guest.os.ImportResult.Failure)?.reason ?: "Failed to import ISO"
+                    isoSetupProgress.value = IsoSetupProgress(step = 1, stepName = "Error", message = failMsg, isError = true)
+                    return@launch
+                }
+
+                val isoFile = importResult.importedFile
+                val isoInfo = com.example.vm.guest.iso.ISOManager.inspectIso(context, isoFile.absolutePath)
+
+                // Step 2: Preparing Virtual Storage Disk & GPT Partition
+                isoSetupProgress.value = IsoSetupProgress(
+                    step = 2,
+                    stepName = "Step 2/4: Preparing Persistent Storage Disk",
+                    message = "Allocating virtual hard disk image for Windows/Linux OS installation..."
+                )
+
+                val diskDir = diskBackend.getAuthorizedDisksDirectory()
+                val diskFile = File(diskDir, "${config.name.replace("\\s+".toRegex(), "_").lowercase()}_system.img")
+                if (!diskFile.exists() || diskFile.length() < 512) {
+                    diskBackend.createDiskImage(diskFile.absolutePath, config.diskSizeGb, true)
+                }
+
+                // Step 3: Initializing UEFI EDK2 Firmware & Boot Variables
+                isoSetupProgress.value = IsoSetupProgress(
+                    step = 3,
+                    stepName = "Step 3/4: Configuring UEFI EDK2 Firmware",
+                    message = "Setting up ARM64 TianoCore UEFI firmware, ACPI 6.2 tables, and CD-ROM boot priority..."
+                )
+
+                com.example.vm.firmware.UefiFirmwareManager.getOrInitializeNvramStore(context, com.example.vm.cpu.GuestArchitecture.ARM64)
+
+                val isWindowsIso = config.guestOsType.contains("Windows", true) || isoInfo.volumeLabel.contains("Win", true) || isoInfo.efiBootLoaderName.contains("bootmgfw", true)
+
+                val updatedConfig = config.copy(
+                    isoPath = isoFile.absolutePath,
+                    diskImagePath = diskFile.absolutePath,
+                    bootOrder = "CD_ROM",
+                    guestOsType = if (isWindowsIso) "Windows 11 ARM64" else config.guestOsType,
+                    ramSizeMb = maxOf(4096, config.ramSizeMb),
+                    cpuCores = maxOf(2, config.cpuCores)
+                )
+
+                saveFullConfig(updatedConfig)
+
+                // Step 4: Booting Windows Setup / OS Installer
+                isoSetupProgress.value = IsoSetupProgress(
+                    step = 4,
+                    stepName = "Step 4/4: Launching Windows Setup / OS Installer",
+                    message = "Booting VM from Optical ISO Media with UEFI Boot Manager...",
+                    isComplete = true
+                )
+
+                if (autoStartVm) {
+                    kotlinx.coroutines.delay(800)
+                    startVM(updatedConfig)
+                }
+            } catch (e: Exception) {
+                isoSetupProgress.value = IsoSetupProgress(step = 4, stepName = "Error", message = "ISO Setup failed: ${e.localizedMessage}", isError = true)
+            }
+        }
+    }
+
+    fun dismissIsoSetupProgress() {
+        isoSetupProgress.value = null
+    }
+
     fun attachIsoToConfig(config: VMConfig, uri: android.net.Uri, onComplete: (VMConfig) -> Unit = {}) {
         viewModelScope.launch {
             try {

@@ -50,14 +50,14 @@ object VMStartValidator {
             )
         }
 
-        val allowedRamOptions = listOf(512, 1024, 1536, 2048, 3072, 4096, 6144, 7168, 8192)
+        val allowedRamOptions = listOf(512, 1024, 1536, 2048, 3072, 4096, 6144, 7168, 8192, 12288, 16384)
         if (config.ramSizeMb !in allowedRamOptions) {
             return ValidationResult.Invalid(
                 VMError(
                     category = VMErrorCategory.INSUFFICIENT_RAM,
                     summary = "Invalid RAM Configuration: ${config.ramSizeMb} MB",
                     technicalDetails = "The guest RAM must be manually configured to one of the authorized manual selection settings.",
-                    suggestedRemedy = "Configure the guest RAM to one of the permitted configurations (512 MB, 1 GB, 2 GB, 3 GB, 4 GB, 6 GB, 7 GB, 8 GB)."
+                    suggestedRemedy = "Configure the guest RAM to one of the permitted configurations (512 MB, 1 GB, 2 GB, 3 GB, 4 GB, 6 GB, 8 GB, 12 GB, 16 GB)."
                 )
             )
         }
