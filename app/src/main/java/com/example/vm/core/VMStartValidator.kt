@@ -53,7 +53,8 @@ object VMStartValidator {
         // 2. Host Physical Memory Safety
         val hostStats = memoryManager.getHostMemoryStats()
         val isWindows = config.guestOsType.contains("Windows", ignoreCase = true)
-        
+        val isKvmMode = config.useHardwareVirtualization && (config.cpuBackendPreference != "ARM64_SOFTWARE_EMULATOR") && NativeVMBinding.isLoaded() && NativeVMBinding.nativeIsKvmSupported()
+
         if (isWindows && config.ramSizeMb < 2048) {
             return ValidationResult.Invalid(
                 VMError(
@@ -65,10 +66,37 @@ object VMStartValidator {
             )
         }
 
-        val safety = memoryManager.getMemorySafetyRecommendation(config.ramSizeMb)
-        if (safety is MemoryManager.SafetyResult.Danger) {
+        val plan = com.example.vm.memory.HostMemoryPlanner.calculateMemoryPlan(
+            context = context,
+            requestedRamMb = config.ramSizeMb,
+            isKvmMode = isKvmMode,
+            isWindowsGuest = isWindows
+        )
+
+        if (plan.isLowMemoryPressure) {
             return ValidationResult.Invalid(
-                VMError.insufficientRam(config.ramSizeMb, hostStats.availableMb)
+                VMError(
+                    category = VMErrorCategory.INSUFFICIENT_RAM,
+                    summary = "HOST_MEMORY_PRESSURE: Cannot allocate ${config.ramSizeMb} MB guest RAM.",
+                    technicalDetails = "Android Low Memory Killer (LMK) active. Available host memory: ${plan.availableHostMemMb} MB.\nReason: ${plan.reason}",
+                    suggestedRemedy = "Close background apps or select a lower guest RAM allocation (e.g. ${plan.recommendedRamMb} MB)."
+                )
+            )
+        }
+
+        if (!plan.isSafe) {
+            val summaryTitle = if (config.ramSizeMb >= 4096) {
+                "${config.ramSizeMb / 1024} GB guest RAM is not currently available."
+            } else {
+                "Insufficient Host RAM for ${config.ramSizeMb} MB guest allocation."
+            }
+            return ValidationResult.Invalid(
+                VMError(
+                    category = VMErrorCategory.INSUFFICIENT_RAM,
+                    summary = summaryTitle,
+                    technicalDetails = "Requested: ${config.ramSizeMb} MB\nSafe maximum: ${plan.maximumSafeRamMb} MB\nAvailable host memory: ${plan.availableHostMemMb} MB\n\n${plan.reason}",
+                    suggestedRemedy = "Select a safe RAM value equal to or less than ${plan.maximumSafeRamMb} MB (Recommended: ${plan.recommendedRamMb} MB)."
+                )
             )
         }
 

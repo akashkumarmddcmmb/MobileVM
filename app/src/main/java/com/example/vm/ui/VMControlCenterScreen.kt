@@ -652,13 +652,13 @@ fun MemorySettingsTab(
         }
 
         Text("Configured RAM", fontSize = 11.sp, color = Color.Gray)
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf(512, 1024, 2048, 4096).forEach { mb ->
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            listOf(512, 1024, 1536, 2048, 3072, 4096).forEach { mb ->
                 FilterChip(
                     selected = ramMb == mb,
                     onClick = { onRamMbChange(mb) },
                     enabled = !isRunning,
-                    label = { Text(if (mb >= 1024) "${mb / 1024} GB" else "$mb MB") }
+                    label = { Text(if (mb >= 1024 && mb % 1024 == 0) "${mb / 1024} GB" else if (mb >= 1024) "${mb / 1024.0} GB" else "$mb MB", fontSize = 10.sp) }
                 )
             }
         }

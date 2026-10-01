@@ -2791,9 +2791,10 @@ fun VMConfigDialog(
                         listOf(
                             512 to "512M",
                             1024 to "1G",
+                            1536 to "1.5G",
                             2048 to "2G",
-                            4096 to "4G",
-                            8192 to "8G*"
+                            3072 to "3G",
+                            4096 to "4G"
                         ).forEach { (ram, label) ->
                             val isSelected = ramSizeMb == ram
                             val optionSafety = memoryManager.getMemorySafetyRecommendation(ram)
@@ -2801,6 +2802,7 @@ fun VMConfigDialog(
 
                             Button(
                                 onClick = { ramSizeMb = ram },
+                                enabled = !isDanger || isSelected,
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = if (isSelected) {
                                         if (isDanger) Color(0xFFD32F2F) else MaterialTheme.colorScheme.primary
@@ -2811,12 +2813,14 @@ fun VMConfigDialog(
                                         if (isDanger) Color.White else Color.Black
                                     } else {
                                         if (isDanger) Color.Gray else Color.White
-                                    }
+                                    },
+                                    disabledContainerColor = Color(0xFF101418),
+                                    disabledContentColor = Color.DarkGray
                                 ),
                                 contentPadding = PaddingValues(horizontal = 2.dp),
                                 modifier = Modifier.weight(1f).testTag("btn_ram_$ram")
                             ) {
-                                Text(label, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+                                Text(label, fontSize = 10.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
                             }
                         }
                     }
