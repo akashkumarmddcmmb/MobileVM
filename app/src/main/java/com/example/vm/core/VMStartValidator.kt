@@ -232,9 +232,9 @@ object VMStartValidator {
             val kernelInfo = GuestKernelManager.inspectKernel(kernelPath)
             if (!kernelInfo.isArm64Valid) {
                 return ValidationResult.Invalid(
-                    VMError.kernelMissing(
+                    VMError.kernelFormatUnverified(
                         path = kernelPath,
-                        details = "Invalid Kernel Binary: ${kernelInfo.formatDescription}"
+                        details = kernelInfo.formatDescription
                     )
                 )
             }
@@ -274,12 +274,17 @@ object VMStartValidator {
 
                 if (!initrdInfo.hasUsableInit) {
                     return ValidationResult.Invalid(
-                        VMError.initramfsMissingInit(initramfsPath)
+                        VMError(
+                            category = VMErrorCategory.INVALID_INITRAMFS,
+                            summary = "Invalid Initramfs: No usable /init executable",
+                            technicalDetails = initrdInfo.statusMessage,
+                            suggestedRemedy = "Import an authentic distribution initramfs (CPIO archive) with executable /init."
+                        )
                     )
                 }
             }
 
-            // 5. Virtual Disk Validation (if specified)
+            // 5. Virtual Disk / Rootfs Validation (if specified)
             if (diskPath.isNotBlank()) {
                 if (!diskBackend.isPathAuthorized(diskPath) && !diskBackend.isGuestImagePathAuthorized(diskPath)) {
                     return ValidationResult.Invalid(
@@ -318,14 +323,37 @@ object VMStartValidator {
                             )
                         )
                     }
+                    if (initramfsPath.isBlank()) {
+                        val rootfsInfo = com.example.vm.guest.linux.LinuxRootfsManager.inspectRootfs(diskPath)
+                        if (!rootfsInfo.isVerified) {
+                            return ValidationResult.Invalid(
+                                VMError.rootfsUnverified(diskPath, rootfsInfo.statusMessage)
+                            )
+                        }
+                    }
                 }
             }
         }
 
-        // 6. KVM Virtualization & Fallback Determination
+        // 6. Memory & MMIO Overlap Check
+        val ramBase = 0x40000000L // 1 GB per ARM virt standard
+        val mmioEnd = 0x10400000L // Upper bound of MMIO devices
+        if (ramBase < mmioEnd) {
+            return ValidationResult.Invalid(
+                VMError.ramMmioOverlap(ramBase, config.ramSizeMb * 1024L * 1024L, 0x08000000L, mmioEnd)
+            )
+        }
+
+        // 7. KVM Virtualization & Fallback Determination
         val isKvmAvail = if (NativeVMBinding.isLoaded()) NativeVMBinding.nativeIsKvmSupported() else false
         val kvmReason = if (NativeVMBinding.isLoaded()) NativeVMBinding.nativeGetKvmReason() else "Native bridge inactive"
         val wantsKvm = config.useHardwareVirtualization && config.cpuBackendPreference != "ARM64_SOFTWARE_EMULATOR"
+
+        if (config.cpuBackendPreference == "KVM" && (!isKvmAvail || hostArch != HostArchitecture.ARM64)) {
+            return ValidationResult.Invalid(
+                VMError.kvmUnavailable(kvmReason)
+            )
+        }
 
         val isAccelerated: Boolean
         val backendName: String

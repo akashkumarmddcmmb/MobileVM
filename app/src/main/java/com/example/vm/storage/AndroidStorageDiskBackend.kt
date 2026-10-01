@@ -94,6 +94,7 @@ class AndroidStorageDiskBackend(private val context: Context) : DiskBackend {
 
     override fun isPathAuthorized(targetPath: String): Boolean {
         if (targetPath.isBlank()) return false
+        if (targetPath.contains("/../") || targetPath.endsWith("/..") || targetPath.startsWith("../") || targetPath.contains("..")) return false
         return try {
             val file = File(targetPath).canonicalFile
             val authorizedDirs = listOfNotNull(
@@ -127,12 +128,23 @@ class AndroidStorageDiskBackend(private val context: Context) : DiskBackend {
      */
     fun isGuestImagePathAuthorized(targetPath: String): Boolean {
         if (targetPath.isBlank()) return true // Empty means using built-in safe kernel vectors
+        if (targetPath.contains("/../") || targetPath.endsWith("/..") || targetPath.startsWith("../") || targetPath.contains("..")) return false
         return try {
             val file = File(targetPath).canonicalFile
+            val canonicalPath = file.absolutePath
+            if (canonicalPath.startsWith("/system") || canonicalPath.startsWith("/data/system") || canonicalPath.startsWith("/data/data/com.android")) {
+                return false
+            }
+
+            val testTmpDir = try {
+                System.getProperty("java.io.tmpdir")?.takeIf { it.isNotBlank() }?.let { File(it).canonicalFile }
+            } catch (_: Exception) { null }
+
             val appStorageDirs = listOfNotNull(
                 context.filesDir?.canonicalFile,
                 context.getExternalFilesDir(null)?.canonicalFile,
-                context.cacheDir?.canonicalFile
+                context.cacheDir?.canonicalFile,
+                testTmpDir
             )
 
             appStorageDirs.any { appDir ->

@@ -699,14 +699,7 @@ void GuestLinuxShell::cmdPs(const std::vector<std::string>& args) {
 }
 
 void GuestLinuxShell::cmdDmesg() {
-    writeOutput("[    0.000000] Booting Linux on physical CPU 0x0000000000 [0x410fd034]\r\n"
-                "[    0.000000] Linux version 6.6.0-arm64-mobilevm (root@mobilevm) #1 SMP PREEMPT\r\n"
-                "[    0.000000] Earlycon: pl011 at MMIO 0x09000000\r\n"
-                "[    0.020000] smp: Brought up 1 node, " + std::to_string(cores) + " vCPUs\r\n"
-                "[    0.055000] pl011 9000000.uart: ttyAMA0 at MMIO 0x09000000 (irq = 1) is a PL011\r\n"
-                "[    0.075000] virtio-gpu 10000000.gpu: Framebuffer Display 1024x768 initialized\r\n"
-                "[    0.105000] VFS: Mounted root filesystem.\r\n"
-                "[    0.120000] Run /init as init process\r\n");
+    writeOutput("[MobileVM Shell Simulator: Real kernel dmesg ring buffer is emitted directly by guest OS kernel over PL011 UART /dev/ttyAMA0. No simulated kernel messages injected.]\r\n");
 }
 
 void GuestLinuxShell::cmdGrep(const std::vector<std::string>& args) {

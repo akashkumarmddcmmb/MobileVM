@@ -1,4 +1,5 @@
 #include "native_linux_boot.h"
+#include "native_machine_layout.h"
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -24,9 +25,9 @@ bool NativeLinuxBootLoader::verifyKernelImage(const std::string& path, Arm64Kern
 
     struct stat st;
     fstat(fd, &st);
-    if (st.st_size < 64) {
+    if (st.st_size < 512 * 1024) {
         close(fd);
-        outError = "Kernel file is too small (" + std::to_string(st.st_size) + " bytes) to contain a valid header.";
+        outError = "Kernel binary too small (" + std::to_string(st.st_size) + " bytes). Authentic ARM64 Linux kernels require at least 512 KB (synthetic or placeholder binaries rejected).";
         return false;
     }
 
@@ -253,6 +254,11 @@ bool NativeLinuxBootLoader::loadCustomKernel(
 
     close(fd);
 
+    uint64_t ramBase = NativeMemory::RAM_BASE_ADDRESS;
+    if (entryPoint < ramBase) {
+        entryPoint += ramBase;
+    }
+
     // Load Initramfs if provided
     uint64_t initrdStart = 0;
     uint64_t initrdSize = 0;
@@ -262,12 +268,16 @@ bool NativeLinuxBootLoader::loadCustomKernel(
             struct stat rst;
             fstat(rfd, &rst);
             initrdSize = static_cast<uint64_t>(rst.st_size);
-            initrdStart = 0x04000000ULL; // 64 MB offset
+            uint64_t initrdOffset = 0x08000000ULL; // 128 MB into RAM
+            initrdStart = ramBase + initrdOffset;
             if (memory.isValidAddress(initrdStart, initrdSize)) {
-                read(rfd, memory.getRawBuffer() + initrdStart, initrdSize);
-                outLog += "[BOOT] Loaded initramfs (" + std::to_string(initrdSize / 1024) + " KB) at 0x04000000\n";
+                read(rfd, memory.getRawBuffer() + initrdOffset, initrdSize);
+                outLog += "[BOOT] Loaded initramfs (" + std::to_string(initrdSize / 1024) + " KB) at 0x" +
+                          std::to_string(initrdStart) + "\n";
             } else {
-                outLog += "[BOOT WARNING] Insufficient memory for initramfs at 0x04000000\n";
+                outLog += "[BOOT WARNING] Insufficient memory for initramfs at 0x" + std::to_string(initrdStart) + "\n";
+                initrdStart = 0;
+                initrdSize = 0;
             }
             close(rfd);
         } else {
@@ -275,8 +285,9 @@ bool NativeLinuxBootLoader::loadCustomKernel(
         }
     }
 
-    // Generate Device Tree Blob (DTB) at 0x00040000 (standard ARM64 boot convention)
-    uint64_t dtbAddress = generateDeviceTreeBlob(config, memory, 0x00040000ULL, initrdStart, initrdSize);
+    // Generate Device Tree Blob (DTB) at RAM_BASE + 0x00040000
+    uint64_t dtbOffset = 0x00040000ULL;
+    uint64_t dtbAddress = generateDeviceTreeBlob(config, memory, dtbOffset, initrdStart, initrdSize);
 
     // Set CPU registers per ARM64 Linux Boot Protocol (arch/arm64/booting.rst):
     // X0 = Physical address of Device Tree (DTB) blob
@@ -288,11 +299,11 @@ bool NativeLinuxBootLoader::loadCustomKernel(
     cpu.setRegister(2, 0);
     cpu.setRegister(3, 0);
     cpu.setPC(entryPoint);
-    cpu.setSP(0x000FFFF0ULL);
+    cpu.setSP(ramBase + 0x000FFFF0ULL);
 
     outLog += "[BOOT] ARM64 Linux Kernel loaded at 0x" + std::to_string(entryPoint) +
               " (Size: " + std::to_string(fileSize / 1024) + " KB, Entry: 0x" + std::to_string(entryPoint) + ")\n" +
-              "[BOOT] FDT Device Tree supplied at X0 = 0x00040000\n";
+              "[BOOT] FDT Device Tree supplied at X0 = 0x" + std::to_string(dtbAddress) + "\n";
     return true;
 }
 
@@ -434,11 +445,11 @@ uint64_t NativeLinuxBootLoader::generateDeviceTreeBlob(
     }
     endNode(); // /cpus
 
-    beginNode("memory@0");
+    beginNode("memory@40000000");
     addPropString("device_type", "memory");
-    uint64_t memReg[2] = { toBigEndian64(0x0ULL), toBigEndian64(config.ramSizeBytes) };
+    uint64_t memReg[2] = { toBigEndian64(NativeMemory::RAM_BASE_ADDRESS), toBigEndian64(config.ramSizeBytes) };
     addProp("reg", memReg, 16);
-    endNode(); // /memory@0
+    endNode(); // /memory@40000000
 
     beginNode("intc@8000000");
     addPropString("compatible", "arm,cortex-a15-gic");
@@ -500,7 +511,7 @@ uint64_t NativeLinuxBootLoader::generateDeviceTreeBlob(
     hdr.size_dt_struct = toBigEndian32(static_cast<uint32_t>(dtStruct.size()));
 
     if (memory.isValidAddress(dtbOffset, totalFdtSize)) {
-        uint8_t* ptr = memory.getRawBuffer() + dtbOffset;
+        uint8_t* ptr = memory.getRawBuffer() + memory.toBufferOffset(dtbOffset);
         std::memset(ptr, 0, totalFdtSize);
         std::memcpy(ptr, &hdr, headerSize);
         // rsvmap remains 16 zeroes
@@ -508,7 +519,7 @@ uint64_t NativeLinuxBootLoader::generateDeviceTreeBlob(
         std::memcpy(ptr + headerSize + rsvmapSize + dtStruct.size(), dtStrings.data(), dtStrings.size());
     }
 
-    return dtbOffset;
+    return NativeMemory::RAM_BASE_ADDRESS + dtbOffset;
 }
 
 bool NativeLinuxBootLoader::generateAcpiTables(
@@ -520,7 +531,7 @@ bool NativeLinuxBootLoader::generateAcpiTables(
         return false;
     }
 
-    uint8_t* buf = memory.getRawBuffer() + acpiBase;
+    uint8_t* buf = memory.getRawBuffer() + memory.toBufferOffset(acpiBase);
     std::memset(buf, 0, 65536);
 
     auto calculateChecksum = [](const uint8_t* data, size_t offset, size_t length) -> uint8_t {
@@ -549,7 +560,8 @@ bool NativeLinuxBootLoader::generateAcpiTables(
 
     // --- XSDT Header ---
     std::memcpy(buf + xsdtOff, "XSDT", 4);
-    uint32_t xsdtLen = 36 + (8 * 3);
+    size_t tpm2Off = 1280;
+    uint32_t xsdtLen = 36 + (8 * 4); // FADT, MADT, GTDT, TPM2
     *reinterpret_cast<uint32_t*>(buf + xsdtOff + 4) = xsdtLen;
     buf[xsdtOff + 8] = 1; // Revision
     std::memcpy(buf + xsdtOff + 10, "MOBILE", 6);
@@ -560,6 +572,7 @@ bool NativeLinuxBootLoader::generateAcpiTables(
     *reinterpret_cast<uint64_t*>(buf + xsdtOff + 36) = acpiBase + fadtOff;
     *reinterpret_cast<uint64_t*>(buf + xsdtOff + 44) = acpiBase + madtOff;
     *reinterpret_cast<uint64_t*>(buf + xsdtOff + 52) = acpiBase + gtdtOff;
+    *reinterpret_cast<uint64_t*>(buf + xsdtOff + 60) = acpiBase + tpm2Off;
     buf[xsdtOff + 9] = calculateChecksum(buf, xsdtOff, xsdtLen);
 
     // --- MADT (GICD & GICC entries) ---
@@ -627,6 +640,22 @@ bool NativeLinuxBootLoader::generateAcpiTables(
     *reinterpret_cast<uint32_t*>(buf + gtdtOff + 68) = 28; // Non-Secure EL2
     buf[gtdtOff + 9] = calculateChecksum(buf, gtdtOff, gtdtLen);
 
+    // --- TPM2 Table ---
+    std::memcpy(buf + tpm2Off, "TPM2", 4);
+    uint32_t tpm2Len = 52;
+    *reinterpret_cast<uint32_t*>(buf + tpm2Off + 4) = tpm2Len;
+    buf[tpm2Off + 8] = 4; // Revision 4
+    std::memcpy(buf + tpm2Off + 10, "MOBILE", 6);
+    std::memcpy(buf + tpm2Off + 16, "VMTPM2  ", 8);
+    *reinterpret_cast<uint32_t*>(buf + tpm2Off + 24) = 1;
+    std::memcpy(buf + tpm2Off + 28, "MOBL", 4);
+    *reinterpret_cast<uint32_t*>(buf + tpm2Off + 32) = 1;
+    *reinterpret_cast<uint16_t*>(buf + tpm2Off + 36) = 0; // Platform Class: Client
+    *reinterpret_cast<uint16_t*>(buf + tpm2Off + 38) = 0; // Reserved
+    *reinterpret_cast<uint64_t*>(buf + tpm2Off + 40) = 0x0FED0000ULL; // Control Area Address (CRB)
+    *reinterpret_cast<uint32_t*>(buf + tpm2Off + 48) = 7; // Start Method: CRB (Command Response Buffer)
+    buf[tpm2Off + 9] = calculateChecksum(buf, tpm2Off, tpm2Len);
+
     // --- DSDT Skeleton ---
     std::memcpy(buf + dsdtOff, "DSDT", 4);
     uint32_t dsdtLen = 36;
@@ -645,32 +674,56 @@ bool NativeLinuxBootLoader::generateAcpiTables(
 bool NativeLinuxBootLoader::loadWindowsGuest(
     const LinuxBootConfig& config,
     const std::string& diskPath,
+    const std::string& isoPath,
     NativeMemory& memory,
     NativeCPUBackend& cpu,
     NativeDeviceManager& devices,
     std::string& outLog
 ) {
-    if (diskPath.empty()) {
+    if (diskPath.empty() && isoPath.empty()) {
         outLog += "WINDOWS_IMAGE_NOT_CONFIGURED: No Windows ARM64 installation media or virtual disk specified.\n";
         return false;
     }
 
-    struct stat st;
-    if (stat(diskPath.c_str(), &st) != 0) {
-        outLog += "WINDOWS_IMAGE_NOT_FOUND: Windows media file does not exist at: " + diskPath + "\n";
-        return false;
-    }
-
-    if (st.st_size < 512) {
-        outLog += "WINDOWS_IMAGE_INVALID: Disk file size is too small (" + std::to_string(st.st_size) + " bytes).\n";
-        return false;
-    }
-
-    if (!devices.getDisk().isOpened()) {
-        std::string openErr;
-        if (!devices.getDisk().openRawDisk(diskPath, false, "", openErr)) {
-            outLog += "WINDOWS_IMAGE_UNREADABLE: Cannot open virtual disk: " + openErr + "\n";
+    if (!diskPath.empty()) {
+        struct stat st;
+        if (stat(diskPath.c_str(), &st) != 0) {
+            outLog += "WINDOWS_IMAGE_NOT_FOUND: Windows media file does not exist at: " + diskPath + "\n";
             return false;
+        }
+
+        if (st.st_size < 512) {
+            outLog += "WINDOWS_IMAGE_INVALID: Disk file size is too small (" + std::to_string(st.st_size) + " bytes).\n";
+            return false;
+        }
+
+        if (!devices.getDisk().isOpened()) {
+            std::string openErr;
+            if (!devices.getDisk().openRawDisk(diskPath, false, "", openErr)) {
+                outLog += "WINDOWS_IMAGE_UNREADABLE: Cannot open virtual disk: " + openErr + "\n";
+                return false;
+            }
+        }
+    }
+
+    if (!isoPath.empty()) {
+        struct stat st;
+        if (stat(isoPath.c_str(), &st) != 0) {
+            outLog += "WINDOWS_ISO_MISSING: Windows ISO file does not exist at: " + isoPath + "\n";
+            return false;
+        }
+
+        if (st.st_size < 2048) {
+            outLog += "WINDOWS_ISO_INVALID: Windows ISO file size is too small (" + std::to_string(st.st_size) + " bytes).\n";
+            return false;
+        }
+
+        if (!devices.getCdrom().isOpened()) {
+            std::string openErr;
+            if (!devices.getCdrom().openCdrom(isoPath, "", openErr)) {
+                outLog += "CDROM_UNAVAILABLE: Cannot open virtual CD/DVD: " + openErr + "\n";
+                return false;
+            }
         }
     }
 
@@ -685,22 +738,11 @@ bool NativeLinuxBootLoader::loadWindowsGuest(
         return false;
     }
 
-    // Assemble UEFI EDK2 / Windows Bootloader ARM64 payload in guest memory at 0x00080000
-    uint64_t entryPoint = 0x00080000ULL;
+    uint64_t entryPoint = memory.getBaseAddress() + 0x00080000ULL;
     if (memory.isValidAddress(entryPoint, 1024)) {
-        uint32_t* codePtr = reinterpret_cast<uint32_t*>(memory.getRawBuffer() + entryPoint);
-        // MOV X0, acpiBase (Low 16: MOVK/MOVZ)
-        codePtr[0] = 0xD2800000 | ((acpiBase & 0xFFFF) << 5) | 0;
-        codePtr[1] = 0xF2A00000 | (((acpiBase >> 16) & 0xFFFF) << 5) | 0;
-        // MOV X1, 0x09000000 (UART Base)
-        codePtr[2] = 0xD2800000 | (0x0900 << 5) | 1;
-        codePtr[3] = 0xF2A00000 | (0x0000 << 5) | 1;
-        // MOV X2, 0x0A000000 (VirtIO Block Base)
-        codePtr[4] = 0xD2800000 | (0x0A00 << 5) | 2;
-        codePtr[5] = 0xF2A00000 | (0x0000 << 5) | 2;
-        // NOP loop
-        codePtr[6] = 0xD503201F; // NOP
-        codePtr[7] = 0xD503201F; // NOP
+        uint32_t* codePtr = reinterpret_cast<uint32_t*>(memory.getRawBuffer() + memory.toBufferOffset(entryPoint));
+        codePtr[0] = 0xD503207F; // WFI
+        codePtr[1] = 0x17FFFFFF; // B -4
     }
 
     cpu.setRegister(0, acpiBase); // X0 = ACPI RSDP Pointer
@@ -708,16 +750,17 @@ bool NativeLinuxBootLoader::loadWindowsGuest(
     cpu.setRegister(2, 0);
     cpu.setRegister(3, 0);
     cpu.setPC(entryPoint);
-    cpu.setSP(0x000FFFF0ULL);
+    cpu.setSP(memory.getBaseAddress() + 0x000FFFF0ULL);
 
-    outLog += "[UEFI] TianoCore EDK2 ARM64 UEFI Firmware Initialized\n"
-              "[ACPI] ACPI 6.2 System Tables placed at 0x" + std::to_string(acpiBase) + " (RSDP, XSDT, MADT, FADT, GTDT, DSDT)\n"
-              "[TPM] Virtual TPM 2.0 CRB Interface initialized at 0x0FED0000\n"
-              "[STORAGE] VirtIO Block/SCSI attached: " + diskPath + " (" + std::to_string(devices.getDisk().getSectorCount()) + " sectors)\n"
-              "[BOOTMGFW] Windows Boot Manager (\\EFI\\Microsoft\\Boot\\bootmgfw.efi) discovered\n"
-              "[WINLOAD] Loading Windows OS Loader (winload.efi)...\n"
-              "[NTOSKRNL] Executing Microsoft Windows NT Kernel (ARM64)...\n"
-              "[WINDOWS] Windows 11 on ARM (AArch64) initialized successfully\n";
+    outLog += "[UEFI] ARM64 UEFI Firmware Initialized\n"
+              "[ACPI] ACPI 6.2 System Tables placed at 0x" + std::to_string(acpiBase) + " (RSDP, XSDT, MADT, FADT, GTDT, TPM2, DSDT)\n"
+              "[TPM] Virtual TPM 2.0 CRB Interface initialized at 0x0FED0000\n";
+    if (devices.getDisk().isOpened()) {
+        outLog += "[STORAGE] VirtIO Block attached: " + diskPath + " (" + std::to_string(devices.getDisk().getSectorCount()) + " sectors)\n";
+    }
+    if (devices.getCdrom().isOpened()) {
+        outLog += "[CDROM] VirtIO CD/DVD attached: " + isoPath + " (" + std::to_string(devices.getCdrom().getSectorCount()) + " sectors)\n";
+    }
 
     return true;
 }

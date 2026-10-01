@@ -23,7 +23,8 @@ object AcpiTableGenerator {
         val fadtAddress: Long,
         val gtdtAddress: Long,
         val dsdtAddress: Long,
-        val tableBytes: ByteArray
+        val tableBytes: ByteArray,
+        val tpm2Address: Long = 0L
     )
 
     private fun calculateChecksum(data: ByteArray, offset: Int, length: Int): Byte {
@@ -54,6 +55,7 @@ object AcpiTableGenerator {
         val madtOffset = 256
         val fadtOffset = 512
         val gtdtOffset = 1024
+        val tpm2Offset = 1280
         val dsdtOffset = 1536
 
         // --- RSDP (36 bytes) ---
@@ -75,7 +77,7 @@ object AcpiTableGenerator {
         // --- XSDT Header ---
         buf.position(xsdtOffset)
         buf.put("XSDT".toByteArray(Charsets.US_ASCII))
-        val xsdtLength = 36 + (8 * 3) // Header + 3 pointers (FADT, MADT, GTDT)
+        val xsdtLength = 36 + (8 * 4) // Header + 4 pointers (FADT, MADT, GTDT, TPM2)
         buf.putInt(xsdtLength)
         buf.put(1.toByte()) // Revision
         buf.put(0.toByte()) // Checksum
@@ -87,6 +89,7 @@ object AcpiTableGenerator {
         buf.putLong(baseAddress + fadtOffset)
         buf.putLong(baseAddress + madtOffset)
         buf.putLong(baseAddress + gtdtOffset)
+        buf.putLong(baseAddress + tpm2Offset)
         totalBuffer[xsdtOffset + 9] = calculateChecksum(totalBuffer, xsdtOffset, xsdtLength)
 
         // --- MADT (ARM GIC Distributor & CPU interfaces) ---
@@ -185,6 +188,24 @@ object AcpiTableGenerator {
         buf.putInt(0) // Non-Secure EL2 Timer Flags
         totalBuffer[gtdtOffset + 9] = calculateChecksum(totalBuffer, gtdtOffset, gtdtLength)
 
+        // --- TPM2 Table ---
+        buf.position(tpm2Offset)
+        buf.put("TPM2".toByteArray(Charsets.US_ASCII))
+        val tpm2Length = 52
+        buf.putInt(tpm2Length)
+        buf.put(4.toByte()) // Revision 4
+        buf.put(0.toByte()) // Checksum
+        buf.put("MOBILE".toByteArray(Charsets.US_ASCII))
+        buf.put("VMTPM2  ".toByteArray(Charsets.US_ASCII))
+        buf.putInt(1)
+        buf.put("MOBL".toByteArray(Charsets.US_ASCII))
+        buf.putInt(1)
+        buf.putShort(0.toShort()) // Platform Class: Client
+        buf.putShort(0.toShort()) // Reserved
+        buf.putLong(0x0FED0000L) // Control Area Address (CRB)
+        buf.putInt(7) // Start Method: CRB (Command Response Buffer)
+        totalBuffer[tpm2Offset + 9] = calculateChecksum(totalBuffer, tpm2Offset, tpm2Length)
+
         // --- DSDT Minimal Skeleton ---
         buf.position(dsdtOffset)
         buf.put("DSDT".toByteArray(Charsets.US_ASCII))
@@ -206,7 +227,8 @@ object AcpiTableGenerator {
             fadtAddress = baseAddress + fadtOffset,
             gtdtAddress = baseAddress + gtdtOffset,
             dsdtAddress = baseAddress + dsdtOffset,
-            tableBytes = totalBuffer
+            tableBytes = totalBuffer,
+            tpm2Address = baseAddress + tpm2Offset
         )
     }
 }

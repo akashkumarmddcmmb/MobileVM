@@ -20,6 +20,7 @@ data class KernelImageInfo(
 )
 
 object GuestKernelManager {
+    const val MIN_AUTHENTIC_KERNEL_BYTES: Long = 512L * 1024L // 512 KB min for authentic kernel
     const val MAX_REASONABLE_KERNEL_BYTES: Long = 512L * 1024L * 1024L // 512 MB max
 
     fun inspectKernel(kernelPath: String): KernelImageInfo {
@@ -383,6 +384,29 @@ object GuestKernelManager {
             }
 
             if (eMachine == 183 /* EM_AARCH64 */) {
+                if (size <= 256) {
+                    return KernelImageInfo(
+                        path = kernelPath,
+                        exists = true,
+                        sizeBytes = size,
+                        architecture = "ARM64 (AArch64)",
+                        isArm64Valid = false,
+                        isIsoImage = false,
+                        formatDescription = "Fake or synthetic 256-byte AArch64 ELF rejected ($size bytes). Authentic ARM64 Linux kernels require a verified Linux kernel binary."
+                    )
+                }
+                val hasSignatures = hasKernelSignatures(file)
+                if (!hasSignatures) {
+                    return KernelImageInfo(
+                        path = kernelPath,
+                        exists = true,
+                        sizeBytes = size,
+                        architecture = "ARM64 (AArch64)",
+                        isArm64Valid = false,
+                        isIsoImage = false,
+                        formatDescription = "KERNEL_FORMAT_UNVERIFIED: AArch64 ELF binary lacks authentic Linux kernel signatures."
+                    )
+                }
                 return KernelImageInfo(
                     path = kernelPath,
                     exists = true,
@@ -424,5 +448,29 @@ object GuestKernelManager {
             isIsoImage = false,
             formatDescription = "Unrecognized Kernel Binary (Not ARM64)"
         )
+    }
+
+    private fun hasKernelSignatures(file: File): Boolean {
+        return try {
+            file.inputStream().use { stream ->
+                val buffer = ByteArray(minOf(file.length().toInt(), 256 * 1024))
+                val readBytes = stream.read(buffer)
+                if (readBytes <= 0) return false
+                val content = String(buffer, 0, readBytes, Charsets.ISO_8859_1)
+                content.contains("Linux version") ||
+                content.contains("linux_banner") ||
+                content.contains("earlycon=") ||
+                content.contains("console=") ||
+                content.contains("init_task") ||
+                content.contains("swapper_pg_dir") ||
+                content.contains("sys_call_table") ||
+                content.contains(".head.text") ||
+                content.contains(".rodata") ||
+                content.contains("vmlinux") ||
+                content.contains("ARMd")
+            }
+        } catch (_: Exception) {
+            false
+        }
     }
 }

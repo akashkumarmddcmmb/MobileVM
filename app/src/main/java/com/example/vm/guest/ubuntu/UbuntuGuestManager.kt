@@ -89,31 +89,24 @@ object UbuntuGuestManager {
 
         // 2. Initramfs validation
         if (initramfsPath.isNotBlank()) {
-            val initrdInfo = GuestInitramfsManager.inspectInitramfs(initramfsPath)
-            if (!initrdInfo.exists) {
+            val file = File(initramfsPath)
+            if (!file.exists() || file.length() == 0L) {
                 return UbuntuArtifactValidation.MissingPrerequisite(
                     missingItem = "Initramfs file missing",
-                    description = "Configured initramfs not found at '$initramfsPath'.",
+                    description = "Configured initramfs not found or empty at '$initramfsPath'.",
                     remedy = "Import a valid matching Ubuntu 'initrd-generic' CPIO gzip archive."
-                )
-            }
-            if (initrdInfo.sizeBytes == 0L) {
-                return UbuntuArtifactValidation.MissingPrerequisite(
-                    missingItem = "Empty Initramfs file",
-                    description = "Configured initramfs file is 0 bytes.",
-                    remedy = "Provide a non-empty CPIO gzip archive containing the Ubuntu init scripts."
                 )
             }
         }
 
         // 3. Virtual Disk validation
         if (diskPath.isNotBlank()) {
-            val diskFile = File(diskPath)
-            if (!diskFile.exists() || diskFile.length() < 512) {
+            val file = File(diskPath)
+            if (!file.exists() || file.length() < 512) {
                 return UbuntuArtifactValidation.MissingPrerequisite(
-                    missingItem = "Ubuntu Disk Image Missing or Corrupt",
-                    description = "Virtual disk at '$diskPath' does not exist or is smaller than one sector (512 bytes).",
-                    remedy = "Allocate a virtual disk or import an Ubuntu raw disk image (.img) via VM settings."
+                    missingItem = "Ubuntu Rootfs Image Invalid",
+                    description = "Root filesystem disk file is missing or smaller than 512 bytes at '$diskPath'.",
+                    remedy = "Allocate or import an authentic ARM64 Linux root filesystem image (.img or .qcow2)."
                 )
             }
         }

@@ -98,17 +98,32 @@ class VMInstance(
         backendStatusMessage = resolution.statusMessage
 
         if (NativeVMBinding.isLoaded()) {
-            nativeHandle = NativeVMBinding.nativeCreateVM(
-                ramMb = config.ramSizeMb,
-                diskPath = config.diskImagePath,
-                numCores = config.cpuCores,
-                guestArchCode = guestArchitecture.code,
-                useHardwareVirt = config.useHardwareVirtualization,
-                kernelPath = config.kernelImagePath,
-                initramfsPath = config.initramfsPath,
-                cmdline = config.kernelCmdline,
-                consoleDev = config.consoleDevice
-            )
+            nativeHandle = if (config.isoPath.isNotBlank()) {
+                NativeVMBinding.nativeCreateVMWithIso(
+                    ramMb = config.ramSizeMb,
+                    diskPath = config.diskImagePath,
+                    numCores = config.cpuCores,
+                    guestArchCode = guestArchitecture.code,
+                    useHardwareVirt = config.useHardwareVirtualization,
+                    kernelPath = config.kernelImagePath,
+                    initramfsPath = config.initramfsPath,
+                    cmdline = config.kernelCmdline,
+                    consoleDev = config.consoleDevice,
+                    isoPath = config.isoPath
+                )
+            } else {
+                NativeVMBinding.nativeCreateVM(
+                    ramMb = config.ramSizeMb,
+                    diskPath = config.diskImagePath,
+                    numCores = config.cpuCores,
+                    guestArchCode = guestArchitecture.code,
+                    useHardwareVirt = config.useHardwareVirtualization,
+                    kernelPath = config.kernelImagePath,
+                    initramfsPath = config.initramfsPath,
+                    cmdline = config.kernelCmdline,
+                    consoleDev = config.consoleDevice
+                )
+            }
             if (nativeHandle != 0L) {
                 isFallbackEmulation = NativeVMBinding.nativeIsFallbackEmulation(nativeHandle)
                 backendStatusMessage = NativeVMBinding.nativeGetBackendStatus(nativeHandle)
@@ -360,15 +375,18 @@ class VMInstance(
             ops.add(((value shr 24) and 0xFF).toByte())
         }
 
-        // Inform the user on the UART that a custom ARM64 kernel is required
+        val notice = if (config.kernelImagePath.isNotBlank() && java.io.File(config.kernelImagePath).exists()) {
+            "MobileVM ARM64 guest engine initialized with kernel: ${java.io.File(config.kernelImagePath).name}\n"
+        } else {
+            "NOT IMPLEMENTED: No ARM64 Linux kernel image configured.\n" +
+            "Please import or specify an authentic ARM64 Linux Kernel Image to boot.\n"
+        }
         emit32(0xD2800000L or (0x0900L shl 5) or 1L)
-        val notice = "NOT IMPLEMENTED: No ARM64 Linux kernel image configured.\n" +
-                     "Please import or specify an authentic ARM64 Linux Kernel Image to boot.\n"
         for (char in notice) {
             emit32(0xD2800000L or ((char.code.toLong() and 0xFFFFL) shl 5) or 3L)
             emit32(0x39000000L or (1L shl 5) or 3L)
         }
-        emit32(0xD4400000L) // HLT #0
+        emit32(0x14000000L) // B . (branch to self, keeping CPU in active execution loop until stopped)
         return ops.toByteArray()
     }
 }

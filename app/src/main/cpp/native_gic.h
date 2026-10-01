@@ -22,6 +22,8 @@ public:
     static constexpr uint32_t IRQ_PHYSICAL_TIMER = 30; // PPI 30 (Physical Timer)
     static constexpr uint32_t IRQ_UART = 33;           // SPI 1 (PL011 UART)
     static constexpr uint32_t IRQ_VIRTIO_BLK = 48;     // SPI 16 (VirtIO Block)
+    static constexpr uint32_t IRQ_VIRTIO_CDROM = 49;   // SPI 17 (VirtIO CD-ROM)
+    static constexpr uint32_t IRQ_VIRTIO_NET = 50;     // SPI 18 (VirtIO Net)
 
     NativeGIC();
 

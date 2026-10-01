@@ -71,4 +71,22 @@ object NativeVMBinding {
     // Virtual Audio (PCM Output)
     external fun nativeFetchAudioPcm(handle: Long): ByteArray?
     external fun nativeWriteAudioPcm(handle: Long, pcmData: ByteArray)
+
+    // Virtual CD/DVD (ISO 9660 / UDF)
+    external fun nativeCreateVMWithIso(
+        ramMb: Int,
+        diskPath: String,
+        numCores: Int,
+        guestArchCode: Int,
+        useHardwareVirt: Boolean,
+        kernelPath: String,
+        initramfsPath: String,
+        cmdline: String,
+        consoleDev: String,
+        isoPath: String
+    ): Long
+
+    external fun nativeAttachCdrom(handle: Long, isoPath: String?): Boolean
+    external fun nativeGetCdromSectorCount(handle: Long): Long
+    external fun nativeReadCdromSectorBytes(isoPath: String, lba: Long, count: Int): ByteArray?
 }

@@ -34,7 +34,33 @@ class VMValidationAndStressTest {
         context = ApplicationProvider.getApplicationContext()
 
         // 1. Provision valid Linux guest assets
-        val linuxResult = LinuxImageProvisioner.provisionDefaultLinuxEnvironment(context, "ValidationVM", forceRecreate = true)
+        val dir = File(context.filesDir, "guest_os/ubuntu-24-04-cloud-arm64").apply { mkdirs() }
+        val kernelFile = File(dir, "vmlinuz")
+        val kBytes = ByteArray(1024 * 1024)
+        kBytes[0x38] = 0x41.toByte()
+        kBytes[0x39] = 0x52.toByte()
+        kBytes[0x3A] = 0x4D.toByte()
+        kBytes[0x3B] = 0x64.toByte()
+        kernelFile.writeBytes(kBytes)
+
+        val initrdFile = File(dir, "initrd")
+        val archiveBytes = createTestCpio(listOf(
+            Pair("init", "#!/bin/sh\nexit 0\n".toByteArray()),
+            Pair("bin/sh", "#!/bin/sh\n".toByteArray())
+        ))
+        java.io.FileOutputStream(initrdFile).use { fos ->
+            java.util.zip.GZIPOutputStream(fos).use { gzip ->
+                gzip.write(archiveBytes)
+            }
+        }
+
+        val diskFile = File(dir, "rootfs.img")
+        val diskBytes = ByteArray(2 * 1024 * 1024)
+        diskBytes[0x438] = 0x53.toByte()
+        diskBytes[0x439] = 0xEF.toByte()
+        diskFile.writeBytes(diskBytes)
+
+        val linuxResult = LinuxImageProvisioner.provisionDefaultLinuxEnvironment(context, "ValidationVM", forceRecreate = false)
         assertTrue(linuxResult is LinuxImageProvisioner.ProvisionResult.Success)
         val success = linuxResult as LinuxImageProvisioner.ProvisionResult.Success
 
@@ -530,5 +556,36 @@ class VMValidationAndStressTest {
         assertTrue("Windows Disk must remain intact", validWindowsDiskFile.exists() && validWindowsDiskFile.length() > 0)
         assertTrue("Linux Kernel must remain intact", validKernelFile.exists() && validKernelFile.length() > 0)
         assertTrue("Linux Rootfs must remain intact", validDiskFile.exists() && validDiskFile.length() > 0)
+    }
+
+    private fun createTestCpio(entries: List<Pair<String, ByteArray>>): ByteArray {
+        val bos = java.io.ByteArrayOutputStream()
+        for ((index, entry) in entries.withIndex()) {
+            val nameBytes = (entry.first + "\u0000").toByteArray(Charsets.US_ASCII)
+            val nameSize = nameBytes.size
+            val fileSize = entry.second.size
+            val header = String.format(
+                "070701%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X",
+                index + 1, 0x81ED, 0, 0, 1, System.currentTimeMillis() / 1000,
+                fileSize, 3, 1, 0, 0, nameSize, 0
+            ).toByteArray(Charsets.US_ASCII)
+            bos.write(header)
+            bos.write(nameBytes)
+            val namePad = (4 - ((110 + nameSize) % 4)) % 4
+            for (p in 0 until namePad) bos.write(0)
+            bos.write(entry.second)
+            val contentPad = (4 - (fileSize % 4)) % 4
+            for (p in 0 until contentPad) bos.write(0)
+        }
+        val trailerName = "TRAILER!!!\u0000".toByteArray(Charsets.US_ASCII)
+        val trailerHeader = String.format(
+            "070701%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X",
+            0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, trailerName.size, 0
+        ).toByteArray(Charsets.US_ASCII)
+        bos.write(trailerHeader)
+        bos.write(trailerName)
+        val trailerPad = (4 - ((110 + trailerName.size) % 4)) % 4
+        for (p in 0 until trailerPad) bos.write(0)
+        return bos.toByteArray()
     }
 }

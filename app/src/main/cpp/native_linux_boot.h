@@ -45,6 +45,7 @@ public:
     static bool loadWindowsGuest(
         const LinuxBootConfig& config,
         const std::string& diskPath,
+        const std::string& isoPath,
         NativeMemory& memory,
         NativeCPUBackend& cpu,
         NativeDeviceManager& devices,

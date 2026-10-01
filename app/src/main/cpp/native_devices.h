@@ -82,6 +82,8 @@ public:
     const NativeDisplay& getDisplay() const { return display; }
     NativeDisk& getDisk() { return disk; }
     const NativeDisk& getDisk() const { return disk; }
+    NativeDisk& getCdrom() { return cdrom; }
+    const NativeDisk& getCdrom() const { return cdrom; }
     NativeInputDevice& getInput() { return inputDevice; }
     const NativeInputDevice& getInput() const { return inputDevice; }
     NativeGIC& getGIC() { return gic; }
@@ -94,10 +96,12 @@ public:
 
 private:
     void processVirtioBlockQueue(NativeMemory* memory);
+    void processVirtioCdromQueue(NativeMemory* memory);
 
     NativeUART uart;
     NativeDisplay display;
     NativeDisk disk;
+    NativeDisk cdrom;
     NativeInputDevice inputDevice;
     NativeGIC gic;
     NativeAudioDevice audioDevice;
@@ -122,6 +126,23 @@ private:
     uint64_t blkLba;
     uint32_t blkSectorCount;
     uint64_t blkDmaAddr;
+
+    // VirtIO-CDROM MMIO (0x0A000200) Registers
+    uint32_t cdDeviceFeaturesSel;
+    uint32_t cdDriverFeatures;
+    uint32_t cdDriverFeaturesSel;
+    uint32_t cdQueueSel;
+    uint32_t cdQueueNum;
+    uint32_t cdQueueReady;
+    uint64_t cdQueueDescAddr;
+    uint64_t cdQueueDriverAddr;
+    uint64_t cdQueueDeviceAddr;
+    uint16_t cdLastAvailIdx;
+    uint32_t cdInterruptStatus;
+    uint32_t cdStatus;
+    uint64_t cdLba;
+    uint32_t cdSectorCount;
+    uint64_t cdDmaAddr;
 };
 
 #endif // NATIVE_DEVICES_H

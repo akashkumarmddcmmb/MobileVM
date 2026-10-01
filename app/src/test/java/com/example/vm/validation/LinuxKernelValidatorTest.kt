@@ -22,7 +22,8 @@ class LinuxKernelValidatorTest {
     @Test
     fun testValidArm64UncompressedImage_PassesValidation() {
         val kernelFile = tempFolder.newFile("vmlinuz_valid_arm64")
-        val buffer = ByteBuffer.allocate(256).order(ByteOrder.LITTLE_ENDIAN)
+        val size = 1024 * 1024 // 1 MB
+        val buffer = ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN)
         buffer.putInt(0x1400000A) // code0 branch
         buffer.position(0x38)
         buffer.putInt(0x644D5241) // Magic "ARMd"
@@ -31,13 +32,14 @@ class LinuxKernelValidatorTest {
         val info = GuestKernelManager.inspectKernel(kernelFile.absolutePath)
         assertTrue("Expected valid ARM64 kernel image", info.isArm64Valid)
         assertEquals("ARM64 (AArch64)", info.architecture)
-        assertTrue(info.formatDescription.contains("uncompressed") || info.formatDescription.contains("0x644D5241"))
+        assertTrue(info.formatDescription.contains("Image") || info.formatDescription.contains("0x644D5241"))
     }
 
     @Test
     fun testValidArm64Elf64Vmlinux_PassesValidation() {
         val kernelFile = tempFolder.newFile("vmlinux_arm64")
-        val buffer = ByteBuffer.allocate(256).order(ByteOrder.LITTLE_ENDIAN)
+        val size = 1024 * 1024 // 1 MB
+        val buffer = ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN)
         buffer.put(0x7F.toByte())
         buffer.put('E'.code.toByte())
         buffer.put('L'.code.toByte())
@@ -46,6 +48,9 @@ class LinuxKernelValidatorTest {
         buffer.put(1.toByte()) // Little endian
         buffer.position(0x12)
         buffer.putShort(183.toShort()) // EM_AARCH64 = 183
+        val sig = "Linux version 6.6.0-arm64".toByteArray(Charsets.US_ASCII)
+        buffer.position(512)
+        buffer.put(sig)
         FileOutputStream(kernelFile).use { it.write(buffer.array()) }
 
         val info = GuestKernelManager.inspectKernel(kernelFile.absolutePath)
@@ -55,13 +60,31 @@ class LinuxKernelValidatorTest {
     }
 
     @Test
+    fun testFake256ByteElf_FailsValidation() {
+        val kernelFile = tempFolder.newFile("vmlinux_fake_256")
+        val buffer = ByteBuffer.allocate(256).order(ByteOrder.LITTLE_ENDIAN)
+        buffer.put(0x7F.toByte())
+        buffer.put('E'.code.toByte())
+        buffer.put('L'.code.toByte())
+        buffer.put('F'.code.toByte())
+        buffer.put(2.toByte()) // 64-bit
+        buffer.put(1.toByte())
+        buffer.position(0x12)
+        buffer.putShort(183.toShort()) // EM_AARCH64
+        FileOutputStream(kernelFile).use { it.write(buffer.array()) }
+
+        val info = GuestKernelManager.inspectKernel(kernelFile.absolutePath)
+        assertFalse("Fake 256-byte ELF must be rejected", info.isArm64Valid)
+    }
+
+    @Test
     fun testValidArm64GzipVmlinuz_PassesValidation() {
         val kernelFile = tempFolder.newFile("vmlinuz.gz")
-        val arm64Payload = ByteBuffer.allocate(4096).order(ByteOrder.LITTLE_ENDIAN)
+        val size = 1024 * 1024 // 1 MB
+        val arm64Payload = ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN)
         arm64Payload.putInt(0x1400000A)
         arm64Payload.position(0x38)
         arm64Payload.putInt(0x644D5241) // Magic "ARMd"
-        // Fill remaining buffer with non-zero dummy payload so gzip compressed size > 64 bytes
         for (i in 0x40 until 4096) {
             arm64Payload.put(i, (i and 0xFF).toByte())
         }

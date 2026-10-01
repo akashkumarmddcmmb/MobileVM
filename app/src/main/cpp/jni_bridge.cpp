@@ -574,4 +574,127 @@ Java_com_example_vm_nativebridge_NativeVMBinding_nativeWriteAudioPcm(
     }
 }
 
+JNIEXPORT jlong JNICALL
+Java_com_example_vm_nativebridge_NativeVMBinding_nativeCreateVMWithIso(
+    JNIEnv* env,
+    jobject /* this */,
+    jint ramMb,
+    jstring diskPath,
+    jint numCores,
+    jint guestArchCode,
+    jboolean useHardwareVirt,
+    jstring kernelPath,
+    jstring initramfsPath,
+    jstring cmdline,
+    jstring consoleDev,
+    jstring isoPath) {
+
+    auto extractString = [env](jstring jStr) -> std::string {
+        if (!jStr) return "";
+        const char* chars = env->GetStringUTFChars(jStr, nullptr);
+        std::string str(chars ? chars : "");
+        if (chars) env->ReleaseStringUTFChars(jStr, chars);
+        return str;
+    };
+
+    std::string strDiskPath = extractString(diskPath);
+    std::string strKernelPath = extractString(kernelPath);
+    std::string strInitramfsPath = extractString(initramfsPath);
+    std::string strCmdline = extractString(cmdline);
+    std::string strConsoleDev = extractString(consoleDev);
+    std::string strIsoPath = extractString(isoPath);
+
+    GuestArchitecture gArch = static_cast<GuestArchitecture>(guestArchCode);
+
+    try {
+        NativeVMEngine* engine = new NativeVMEngine(
+            static_cast<size_t>(ramMb),
+            strDiskPath,
+            numCores,
+            gArch,
+            useHardwareVirt == JNI_TRUE,
+            strKernelPath,
+            strInitramfsPath,
+            strCmdline,
+            strConsoleDev,
+            strIsoPath
+        );
+
+        {
+            std::lock_guard<std::mutex> lock(g_engineRegistryMutex);
+            g_activeEngines.insert(engine);
+        }
+
+        LOGI("Native VM Engine created with %d MB RAM, guest arch: %d, virt: %d, iso: %s at %p",
+             ramMb, guestArchCode, useHardwareVirt, strIsoPath.c_str(), engine);
+        return reinterpret_cast<jlong>(engine);
+    } catch (const std::exception& ex) {
+        LOGE("Exception in nativeCreateVMWithIso: %s", ex.what());
+        return 0;
+    } catch (...) {
+        LOGE("Unknown exception in nativeCreateVMWithIso");
+        return 0;
+    }
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_example_vm_nativebridge_NativeVMBinding_nativeAttachCdrom(
+    JNIEnv* env,
+    jobject /* this */,
+    jlong handle,
+    jstring isoPath) {
+    NativeVMEngine* engine = getValidEngine(handle);
+    if (!engine) return JNI_FALSE;
+    if (!isoPath) {
+        engine->getDevices().getCdrom().closeDisk();
+        return JNI_TRUE;
+    }
+    const char* chars = env->GetStringUTFChars(isoPath, nullptr);
+    std::string path(chars ? chars : "");
+    if (chars) env->ReleaseStringUTFChars(isoPath, chars);
+    std::string err;
+    return engine->getDevices().getCdrom().openCdrom(path, "", err) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_example_vm_nativebridge_NativeVMBinding_nativeGetCdromSectorCount(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong handle) {
+    NativeVMEngine* engine = getValidEngine(handle);
+    if (!engine) return 0;
+    return static_cast<jlong>(engine->getDevices().getCdrom().getSectorCount());
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_example_vm_nativebridge_NativeVMBinding_nativeReadCdromSectorBytes(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring isoPath,
+    jlong lba,
+    jint count) {
+    if (!isoPath || count <= 0 || count > 1024) return nullptr;
+    const char* chars = env->GetStringUTFChars(isoPath, nullptr);
+    std::string path(chars ? chars : "");
+    if (chars) env->ReleaseStringUTFChars(isoPath, chars);
+
+    NativeDisk cdDisk;
+    std::string err;
+    if (!cdDisk.openCdrom(path, "", err)) {
+        return nullptr;
+    }
+
+    size_t byteCount = static_cast<size_t>(count) * cdDisk.getSectorSize();
+    std::vector<uint8_t> buffer(byteCount, 0);
+    if (!cdDisk.readSectors(static_cast<uint64_t>(lba), static_cast<uint32_t>(count), buffer.data(), err)) {
+        return nullptr;
+    }
+
+    jbyteArray result = env->NewByteArray(static_cast<jsize>(byteCount));
+    if (result) {
+        env->SetByteArrayRegion(result, 0, static_cast<jsize>(byteCount), reinterpret_cast<const jbyte*>(buffer.data()));
+    }
+    return result;
+}
+
 } // extern "C"

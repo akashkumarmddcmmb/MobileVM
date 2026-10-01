@@ -5,6 +5,10 @@
 #include <cstring>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <android/log.h>
+
+#define KVM_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "MobileVM", __VA_ARGS__)
+#define KVM_LOGI(...) __android_log_print(ANDROID_LOG_INFO, "MobileVM", __VA_ARGS__)
 
 // Standard Linux KVM ABI ioctl codes and structures
 #ifndef KVM_GET_API_VERSION
@@ -293,12 +297,17 @@ bool NativeCPUKVM::syncRegistersFromKvm() {
 bool NativeCPUKVM::initKvmVcpu(NativeMemory& memory) {
     if (kvmFd < 0) {
         kvmFd = open("/dev/kvm", O_RDWR | O_CLOEXEC);
-        if (kvmFd < 0) return false;
+        if (kvmFd < 0) {
+            int err = errno;
+            KVM_LOGE("[VM][KVM] open(/dev/kvm) failed (errno %d: %s)", err, strerror(err));
+            return false;
+        }
     }
 
     // Check user memory capability
     int capUserMem = ioctl(kvmFd, KVM_CHECK_EXTENSION, KVM_CAP_USER_MEMORY);
     if (capUserMem <= 0) {
+        KVM_LOGE("[VM][KVM] KVM_CHECK_EXTENSION(KVM_CAP_USER_MEMORY) returned %d (errno %d)", capUserMem, errno);
         return false;
     }
 
@@ -311,41 +320,65 @@ bool NativeCPUKVM::initKvmVcpu(NativeMemory& memory) {
 
     if (vmFd < 0) {
         vmFd = ioctl(kvmFd, KVM_CREATE_VM, 0);
-        if (vmFd < 0) return false;
+        if (vmFd < 0) {
+            int err = errno;
+            KVM_LOGE("[VM][KVM] ioctl(KVM_CREATE_VM) failed (errno %d: %s)", err, strerror(err));
+            return false;
+        }
 
         struct kvm_userspace_memory_region memRegion;
         std::memset(&memRegion, 0, sizeof(memRegion));
         memRegion.slot = 0;
-        memRegion.guest_phys_addr = 0;
+        memRegion.guest_phys_addr = NativeMemory::RAM_BASE_ADDRESS;
         memRegion.memory_size = memory.getSize();
         memRegion.userspace_addr = reinterpret_cast<uint64_t>(memory.getRawBuffer());
         memRegion.flags = 0;
 
         if (ioctl(vmFd, KVM_SET_USER_MEMORY_REGION, &memRegion) < 0) {
+            int err = errno;
+            KVM_LOGE("[VM][KVM] ioctl(KVM_SET_USER_MEMORY_REGION) failed (errno %d: %s)", err, strerror(err));
             return false;
         }
+        KVM_LOGI("[VM][KVM] Registered guest RAM region: slot 0, GPA 0x%llx, size %zu MB",
+                 (unsigned long long)NativeMemory::RAM_BASE_ADDRESS, memory.getSizeMb());
     }
 
     if (vcpuFd < 0) {
         vcpuFd = ioctl(vmFd, KVM_CREATE_VCPU, 0);
-        if (vcpuFd < 0) return false;
+        if (vcpuFd < 0) {
+            int err = errno;
+            KVM_LOGE("[VM][KVM] ioctl(KVM_CREATE_VCPU) failed (errno %d: %s)", err, strerror(err));
+            return false;
+        }
 
         // Initialize ARM64 vCPU preferred target with PSCI 0.2 feature enabled
         struct kvm_vcpu_init init;
         std::memset(&init, 0, sizeof(init));
         if (ioctl(vmFd, KVM_ARM_PREFERRED_TARGET, &init) >= 0) {
             init.features[0] |= (1u << 0); // KVM_ARM_VCPU_PSCI_0_2
-            ioctl(vcpuFd, KVM_ARM_VCPU_INIT, &init);
+            if (ioctl(vcpuFd, KVM_ARM_VCPU_INIT, &init) < 0) {
+                int err = errno;
+                KVM_LOGE("[VM][KVM] ioctl(KVM_ARM_VCPU_INIT) failed (errno %d: %s)", err, strerror(err));
+                return false;
+            }
+        } else {
+            int err = errno;
+            KVM_LOGE("[VM][KVM] ioctl(KVM_ARM_PREFERRED_TARGET) failed (errno %d: %s)", err, strerror(err));
+            return false;
         }
 
         void* runPtr = mmap(nullptr, vcpuMmapSize, PROT_READ | PROT_WRITE, MAP_SHARED, vcpuFd, 0);
         if (runPtr == MAP_FAILED) {
+            int err = errno;
+            KVM_LOGE("[VM][KVM] mmap(vcpu_run) failed (errno %d: %s)", err, strerror(err));
             runStruct = nullptr;
+            return false;
         } else {
             runStruct = static_cast<struct kvm_run*>(runPtr);
         }
 
         syncRegistersToKvm();
+        KVM_LOGI("[VM][KVM] vCPU-0 created and initialized successfully");
     }
 
     return true;
@@ -397,6 +430,8 @@ NativeCPUState NativeCPUKVM::step(NativeMemory& memory, NativeDeviceManager& dev
         if (errno == EINTR || errno == EAGAIN) {
             return state;
         }
+        int err = errno;
+        KVM_LOGE("[VM][KVM] ioctl(KVM_RUN) failed (errno %d: %s, state %d)", err, strerror(err), static_cast<int>(state));
         state = NativeCPUState::TRAP_FAULT;
         return state;
     }
@@ -413,12 +448,17 @@ NativeCPUState NativeCPUKVM::step(NativeMemory& memory, NativeDeviceManager& dev
                 state = NativeCPUState::HALTED;
                 break;
             case KVM_EXIT_FAIL_ENTRY:
+                KVM_LOGE("[VM][KVM] KVM_EXIT_FAIL_ENTRY (reason 0x%llx)",
+                         (unsigned long long)runStruct->fail_entry.hardware_entry_failure_reason);
                 state = NativeCPUState::TRAP_FAULT;
                 break;
             case KVM_EXIT_SYSTEM_EVENT:
                 state = NativeCPUState::HALTED;
                 break;
             default:
+                KVM_LOGE("[VM][KVM] Unknown KVM exit reason: %u. Producing controlled VM trap failure.",
+                         runStruct->exit_reason);
+                state = NativeCPUState::TRAP_FAULT;
                 break;
         }
     }

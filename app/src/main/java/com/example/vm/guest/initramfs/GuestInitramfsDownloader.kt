@@ -39,9 +39,9 @@ object GuestInitramfsDownloader {
             }
 
             val info = GuestInitramfsManager.inspectInitramfs(targetFile.absolutePath)
-            if (!info.exists || info.sizeBytes == 0L) {
+            if (!info.exists || info.sizeBytes == 0L || !info.hasUsableInit) {
                 targetFile.delete()
-                return@withContext InitramfsResult.Failure("Imported initramfs file is empty or unreadable.")
+                return@withContext InitramfsResult.Failure("Imported initramfs file is invalid: ${info.statusMessage}")
             }
 
             InitramfsResult.Success(
@@ -86,9 +86,9 @@ object GuestInitramfsDownloader {
             }
 
             val info = GuestInitramfsManager.inspectInitramfs(targetFile.absolutePath)
-            if (!info.exists || info.sizeBytes == 0L) {
+            if (!info.exists || info.sizeBytes == 0L || !info.hasUsableInit) {
                 targetFile.delete()
-                return@withContext InitramfsResult.Failure("Downloaded initramfs file is empty.")
+                return@withContext InitramfsResult.Failure("Downloaded initramfs file is invalid: ${info.statusMessage}")
             }
 
             InitramfsResult.Success(

@@ -5,7 +5,7 @@
 #include <iomanip>
 #include <android/log.h>
 
-#define VM_LOG_TAG "MobileVM-NativeEngine"
+#define VM_LOG_TAG "MobileVM"
 #define NLOGI(...) __android_log_print(ANDROID_LOG_INFO, VM_LOG_TAG, __VA_ARGS__)
 #define NLOGE(...) __android_log_print(ANDROID_LOG_ERROR, VM_LOG_TAG, __VA_ARGS__)
 
@@ -18,9 +18,11 @@ NativeVMEngine::NativeVMEngine(
     const std::string& kernelPath,
     const std::string& initramfsPath,
     const std::string& cmdline,
-    const std::string& consoleDev
+    const std::string& consoleDev,
+    const std::string& isoPath
 ) : ramMb(ramSizeMb),
     diskImagePath(diskPath),
+    isoImagePath(isoPath),
     cores(numCores),
     guestArch(gArch),
     requestHardwareVirt(useHardwareVirt),
@@ -53,7 +55,7 @@ bool NativeVMEngine::loadBootPayload() {
     if (!bootConfig.kernelPath.empty()) {
         ok = NativeLinuxBootLoader::loadLinuxGuest(bootConfig, memory, *cpu, devices, bootLog);
     } else {
-        ok = NativeLinuxBootLoader::loadWindowsGuest(bootConfig, diskImagePath, memory, *cpu, devices, bootLog);
+        ok = NativeLinuxBootLoader::loadWindowsGuest(bootConfig, diskImagePath, isoImagePath, memory, *cpu, devices, bootLog);
     }
 
     if (!ok) {
@@ -96,11 +98,25 @@ bool NativeVMEngine::configure() {
         }
     }
 
+    if (!isoImagePath.empty()) {
+        std::string err;
+        if (!devices.getCdrom().openCdrom(isoImagePath, "", err)) {
+            NLOGE("Failed to attach virtual CD-ROM %s: %s", isoImagePath.c_str(), err.c_str());
+            devices.getDisk().closeDisk();
+            devices.resetAll();
+            memory.reset();
+            backendStatus = "Virtual CD/DVD attach failed: " + err;
+            state = VMNativeState::ERROR;
+            return false;
+        }
+    }
+
     if (cpu) cpu->reset();
     bool loaded = loadBootPayload();
     if (!loaded) {
-        // Partial cleanup: If boot payload failed to load, close disk and reset memory
+        // Partial cleanup: If boot payload failed to load, close disk, cdrom and reset memory
         devices.getDisk().closeDisk();
+        devices.getCdrom().closeDisk();
         devices.resetAll();
         memory.reset();
         state = VMNativeState::ERROR;
@@ -160,7 +176,10 @@ bool NativeVMEngine::stop() {
 
     state = VMNativeState::STOPPING;
     if (cpu) cpu->setState(NativeCPUState::HALTED);
-    devices.getDisk().flush();
+    bool flushOk = devices.getDisk().flush();
+    if (!flushOk) {
+        NLOGE("[VM][STORAGE] Disk flush failed during VM stop");
+    }
     state = VMNativeState::STOPPED;
     return true;
 }
@@ -180,6 +199,7 @@ void NativeVMEngine::destroy() {
 
     stop();
     devices.getDisk().closeDisk();
+    devices.getCdrom().closeDisk();
     memory.reset();
     devices.resetAll();
     if (cpu) cpu->reset();

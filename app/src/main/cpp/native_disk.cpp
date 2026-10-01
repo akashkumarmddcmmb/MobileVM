@@ -161,6 +161,15 @@ bool NativeDisk::openRawDisk(const std::string& path, bool readOnly, const std::
     return true;
 }
 
+bool NativeDisk::openCdrom(const std::string& path, const std::string& allowedPrefixDir, std::string& outError) {
+    if (!openRawDisk(path, true, allowedPrefixDir, outError)) {
+        return false;
+    }
+    sectorSize = 2048; // Standard ISO 9660 / UDF optical sector size
+    readOnlyMode = true;
+    return true;
+}
+
 void NativeDisk::closeDisk() {
     if (fd >= 0) {
         if (!readOnlyMode) {
@@ -180,10 +189,24 @@ bool NativeDisk::readSectors(uint64_t lba, uint32_t count, uint8_t* outBuffer, s
         return false;
     }
 
-    uint64_t byteOffset = lba * sectorSize;
-    size_t byteCount = count * sectorSize;
+    if (sectorSize == 0 || count == 0) {
+        return true;
+    }
 
-    if (byteOffset + byteCount > totalSizeBytes) {
+    // Overflow-safe bounds check
+    if (lba > UINT64_MAX / sectorSize) {
+        outError = "Integer overflow in LBA byte calculation (LBA " + std::to_string(lba) + ").";
+        return false;
+    }
+    uint64_t byteOffset = lba * sectorSize;
+
+    if (count > UINT32_MAX / sectorSize) {
+        outError = "Integer overflow in sector count byte calculation.";
+        return false;
+    }
+    size_t byteCount = static_cast<size_t>(count) * sectorSize;
+
+    if (UINT64_MAX - byteOffset < byteCount || byteOffset + byteCount > totalSizeBytes) {
         outError = "Disk read out of bounds (LBA " + std::to_string(lba) + ", count " + std::to_string(count) + ").";
         return false;
     }
@@ -216,10 +239,24 @@ bool NativeDisk::writeSectors(uint64_t lba, uint32_t count, const uint8_t* inBuf
         return false;
     }
 
-    uint64_t byteOffset = lba * sectorSize;
-    size_t byteCount = count * sectorSize;
+    if (sectorSize == 0 || count == 0) {
+        return true;
+    }
 
-    if (byteOffset + byteCount > totalSizeBytes) {
+    // Overflow-safe bounds check
+    if (lba > UINT64_MAX / sectorSize) {
+        outError = "Integer overflow in LBA byte calculation (LBA " + std::to_string(lba) + ").";
+        return false;
+    }
+    uint64_t byteOffset = lba * sectorSize;
+
+    if (count > UINT32_MAX / sectorSize) {
+        outError = "Integer overflow in sector count byte calculation.";
+        return false;
+    }
+    size_t byteCount = static_cast<size_t>(count) * sectorSize;
+
+    if (UINT64_MAX - byteOffset < byteCount || byteOffset + byteCount > totalSizeBytes) {
         outError = "Disk write out of bounds (LBA " + std::to_string(lba) + ", count " + std::to_string(count) + ").";
         return false;
     }

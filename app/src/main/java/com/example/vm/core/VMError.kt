@@ -37,11 +37,33 @@ enum class VMErrorCategory(val displayTitle: String) {
     PTY_NOT_IMPLEMENTED("Linux PTY Not Implemented"),
     NETWORK_NOT_IMPLEMENTED("Virtual Network Not Implemented"),
     KVM_NOT_AVAILABLE("KVM Not Available"),
+    KVM_UNAVAILABLE("KVM Unavailable"),
+    KERNEL_FORMAT_UNVERIFIED("Kernel Format Unverified"),
+    ROOTFS_UNVERIFIED("Rootfs Unverified"),
+    SOFTWARE_EMULATION_INCOMPLETE("Software Emulation Incomplete"),
+    SOFTWARE_EMULATION_UNAVAILABLE("Software Emulation Unavailable"),
+    RAM_MMIO_OVERLAP("Guest RAM and MMIO Overlap"),
     WINDOWS_IMAGE_NOT_CONFIGURED("Windows Image Not Configured"),
     WINDOWS_IMAGE_NOT_FOUND("Windows Image Not Found"),
     WINDOWS_IMAGE_UNREADABLE("Windows Image Unreadable"),
     WINDOWS_IMAGE_INVALID("Windows Image Invalid"),
     WINDOWS_IMAGE_UNSUPPORTED("Windows Image Unsupported"),
+    WINDOWS_ISO_MISSING("Windows ISO Missing"),
+    WINDOWS_ISO_INVALID("Windows ISO Invalid"),
+    WINDOWS_ISO_ARCHITECTURE_UNVERIFIED("Windows ISO Architecture Unverified"),
+    WINDOWS_ISO_ACCESS_LOST("Windows ISO Access Lost"),
+    UEFI_MISSING("UEFI Firmware Missing"),
+    UEFI_INVALID("UEFI Firmware Invalid"),
+    UEFI_VARIABLE_STORE_INVALID("UEFI Variable Store Invalid"),
+    DISK_MISSING("Virtual Disk Missing"),
+    GPT_INVALID("GPT Partition Table Invalid"),
+    ESP_INVALID("EFI System Partition Invalid"),
+    TPM_UNAVAILABLE("TPM Unavailable"),
+    TPM_BACKEND_INCOMPLETE("TPM Backend Incomplete"),
+    ACPI_INVALID("ACPI Tables Invalid"),
+    CPU_BACKEND_INCOMPLETE("CPU Backend Incomplete"),
+    CDROM_UNAVAILABLE("Virtual CD/DVD Device Unavailable"),
+    WINDOWS_INSTALLATION_INVALID("Windows Installation Invalid"),
     FIRMWARE_UNAVAILABLE("Firmware Unavailable"),
     CONFIGURATION_ERROR("Configuration Error"),
     IMAGE_ERROR("Image Error"),
@@ -66,7 +88,11 @@ data class VMError(
     val summary: String,
     val technicalDetails: String,
     val suggestedRemedy: String,
-    val timestampMs: Long = System.currentTimeMillis()
+    val timestampMs: Long = System.currentTimeMillis(),
+    val code: String = category.name,
+    val component: String = "VM",
+    val operation: String = "",
+    val recoverable: Boolean = false
 ) {
     val formattedTimestamp: String
         get() {
@@ -320,6 +346,160 @@ data class VMError(
             summary = "Virtual disk operation failed for '$path': $reason",
             technicalDetails = "Path: $path. $reason",
             suggestedRemedy = "Check disk image format, read permissions, and available storage."
+        )
+
+        fun kernelFormatUnverified(path: String, details: String): VMError = VMError(
+            category = VMErrorCategory.KERNEL_FORMAT_UNVERIFIED,
+            summary = "KERNEL_FORMAT_UNVERIFIED: Cannot verify ARM64 Linux kernel image format.",
+            technicalDetails = "Path: '$path'. Details: $details",
+            suggestedRemedy = "Please import or download an authentic, verified ARM64 Linux kernel (vmlinuz/Image) with valid header and sections."
+        )
+
+        fun rootfsUnverified(path: String, details: String): VMError = VMError(
+            category = VMErrorCategory.ROOTFS_UNVERIFIED,
+            summary = "ROOTFS_UNVERIFIED: Root filesystem image could not be verified.",
+            technicalDetails = "Path: '$path'. Details: $details",
+            suggestedRemedy = "Supply an actual ARM64 root filesystem image (ext4 or GPT/MBR disk with root partition) containing /etc, /usr, /bin, and /sbin."
+        )
+
+        fun kvmUnavailable(reason: String): VMError = VMError(
+            category = VMErrorCategory.KVM_UNAVAILABLE,
+            summary = "KVM_UNAVAILABLE: Hardware virtualization via /dev/kvm is unavailable on this host.",
+            technicalDetails = "Host limitation: $reason",
+            suggestedRemedy = "Run on a host kernel with KVM enabled and permissions granted to unprivileged applications, or select software emulation if supported."
+        )
+
+        fun softwareEmulationIncomplete(details: String): VMError = VMError(
+            category = VMErrorCategory.SOFTWARE_EMULATION_INCOMPLETE,
+            summary = "SOFTWARE_EMULATION_INCOMPLETE: Software ARM64 emulator cannot complete execution of the guest kernel.",
+            technicalDetails = details,
+            suggestedRemedy = "Use hardware-accelerated KVM or verify emulator instruction implementation."
+        )
+
+        fun ramMmioOverlap(ramBase: Long, ramSize: Long, mmioStart: Long, mmioEnd: Long): VMError = VMError(
+            category = VMErrorCategory.RAM_MMIO_OVERLAP,
+            summary = "Guest RAM overlaps MMIO address range.",
+            technicalDetails = "RAM [0x%X, 0x%X) overlaps MMIO [0x%X, 0x%X)".format(ramBase, ramBase + ramSize, mmioStart, mmioEnd),
+            suggestedRemedy = "Use the standard ARM virt layout with RAM starting at 0x40000000."
+        )
+
+        fun windowsIsoMissing(details: String = ""): VMError = VMError(
+            category = VMErrorCategory.WINDOWS_ISO_MISSING,
+            summary = "WINDOWS_ISO_MISSING: No Windows ARM64 installation media specified.",
+            technicalDetails = if (details.isNotBlank()) details else "Windows ISO media path or SAF URI is empty or not configured.",
+            suggestedRemedy = "Select a valid Windows 11/10 ARM64 installation ISO via Storage Access Framework."
+        )
+
+        fun windowsIsoInvalid(path: String, details: String): VMError = VMError(
+            category = VMErrorCategory.WINDOWS_ISO_INVALID,
+            summary = "WINDOWS_ISO_INVALID: Selected Windows ISO is corrupted or not a valid ISO 9660 / UDF disc image.",
+            technicalDetails = "Path: '$path'. Details: $details",
+            suggestedRemedy = "Verify the ISO file integrity and ensure it is not truncated or corrupted."
+        )
+
+        fun windowsIsoArchitectureUnverified(path: String, details: String): VMError = VMError(
+            category = VMErrorCategory.WINDOWS_ISO_ARCHITECTURE_UNVERIFIED,
+            summary = "WINDOWS_ISO_ARCHITECTURE_UNVERIFIED: Cannot verify that the ISO contains ARM64 EFI bootloader.",
+            technicalDetails = "Path: '$path'. Details: $details",
+            suggestedRemedy = "Ensure the ISO is an authentic Windows on ARM (ARM64/AArch64) build containing \\EFI\\Boot\\bootaa64.efi."
+        )
+
+        fun windowsIsoAccessLost(path: String, details: String = ""): VMError = VMError(
+            category = VMErrorCategory.WINDOWS_ISO_ACCESS_LOST,
+            summary = "WINDOWS_ISO_ACCESS_LOST: Android Storage Access Framework permission to Windows ISO has expired.",
+            technicalDetails = "URI: '$path'. $details",
+            suggestedRemedy = "Re-open the Windows ISO file picker to grant fresh read permissions."
+        )
+
+        fun uefiMissing(details: String = ""): VMError = VMError(
+            category = VMErrorCategory.UEFI_MISSING,
+            summary = "UEFI_MISSING: ARM64 UEFI firmware image (QEMU_EFI.fd) is missing.",
+            technicalDetails = details.ifBlank { "Firmware image was not found in application storage." },
+            suggestedRemedy = "Provision or import a compatible ARM64 EDK2 UEFI firmware image."
+        )
+
+        fun uefiInvalid(details: String): VMError = VMError(
+            category = VMErrorCategory.UEFI_INVALID,
+            summary = "UEFI_INVALID: ARM64 UEFI firmware image is corrupted or invalid.",
+            technicalDetails = details,
+            suggestedRemedy = "Import an authentic 64-bit ARM EDK2 firmware binary."
+        )
+
+        fun uefiVariableStoreInvalid(details: String): VMError = VMError(
+            category = VMErrorCategory.UEFI_VARIABLE_STORE_INVALID,
+            summary = "UEFI_VARIABLE_STORE_INVALID: Persistent NVRAM variable store cannot be initialized.",
+            technicalDetails = details,
+            suggestedRemedy = "Reset the UEFI NVRAM variable store in VM settings."
+        )
+
+        fun diskMissing(details: String): VMError = VMError(
+            category = VMErrorCategory.DISK_MISSING,
+            summary = "DISK_MISSING: Target virtual disk file does not exist.",
+            technicalDetails = details,
+            suggestedRemedy = "Allocate a virtual disk in VM settings before starting the VM."
+        )
+
+        fun gptInvalid(path: String, details: String): VMError = VMError(
+            category = VMErrorCategory.GPT_INVALID,
+            summary = "GPT_INVALID: Virtual disk does not contain a valid GUID Partition Table (GPT).",
+            technicalDetails = "Path: '$path'. Details: $details",
+            suggestedRemedy = "Initialize the disk with a standard GPT partition table with ESP and Windows partitions."
+        )
+
+        fun espInvalid(path: String, details: String): VMError = VMError(
+            category = VMErrorCategory.ESP_INVALID,
+            summary = "ESP_INVALID: EFI System Partition (ESP) is missing or unreadable.",
+            technicalDetails = "Path: '$path'. Details: $details",
+            suggestedRemedy = "Format an EFI System Partition (FAT32) on the virtual disk."
+        )
+
+        fun tpmUnavailable(details: String): VMError = VMError(
+            category = VMErrorCategory.TPM_UNAVAILABLE,
+            summary = "TPM_UNAVAILABLE: Virtual TPM 2.0 interface could not be initialized.",
+            technicalDetails = details,
+            suggestedRemedy = "Enable TPM in VM settings or verify CRB memory window configuration."
+        )
+
+        fun tpmBackendIncomplete(details: String): VMError = VMError(
+            category = VMErrorCategory.TPM_BACKEND_INCOMPLETE,
+            summary = "TPM_BACKEND_INCOMPLETE: Virtual TPM backend does not support the required Windows 11 commands.",
+            technicalDetails = details,
+            suggestedRemedy = "Ensure TPM 2.0 CRB command dispatcher is active."
+        )
+
+        fun acpiInvalid(details: String): VMError = VMError(
+            category = VMErrorCategory.ACPI_INVALID,
+            summary = "ACPI_INVALID: Generated ACPI 6.2 tables are malformed or inconsistent with VM devices.",
+            technicalDetails = details,
+            suggestedRemedy = "Check CPU cores, RAM allocation, and device table mappings."
+        )
+
+        fun cpuBackendIncomplete(details: String): VMError = VMError(
+            category = VMErrorCategory.CPU_BACKEND_INCOMPLETE,
+            summary = "CPU_BACKEND_INCOMPLETE: ARM64 CPU execution engine cannot execute Windows bootloader instructions.",
+            technicalDetails = details,
+            suggestedRemedy = "Run on a hardware-accelerated device with /dev/kvm enabled."
+        )
+
+        fun cdromUnavailable(details: String): VMError = VMError(
+            category = VMErrorCategory.CDROM_UNAVAILABLE,
+            summary = "CDROM_UNAVAILABLE: Virtual CD/DVD device cannot mount the Windows installation media.",
+            technicalDetails = details,
+            suggestedRemedy = "Check ISO file format and read permissions."
+        )
+
+        fun windowsInstallationInvalid(path: String, details: String): VMError = VMError(
+            category = VMErrorCategory.WINDOWS_INSTALLATION_INVALID,
+            summary = "WINDOWS_INSTALLATION_INVALID: Virtual disk does not contain an installed Windows ARM64 OS.",
+            technicalDetails = "Path: '$path'. Details: $details",
+            suggestedRemedy = "Boot from the Windows installation media (ISO) to complete Windows Setup, or attach a disk with installed Windows."
+        )
+
+        fun softwareEmulationUnavailable(details: String): VMError = VMError(
+            category = VMErrorCategory.SOFTWARE_EMULATION_UNAVAILABLE,
+            summary = "SOFTWARE_EMULATION_UNAVAILABLE: Software ARM64 emulation backend is unavailable.",
+            technicalDetails = details,
+            suggestedRemedy = "Ensure device has KVM support or enable software emulator."
         )
     }
 }

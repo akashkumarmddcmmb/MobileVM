@@ -123,10 +123,13 @@ class VMEngine(
         // 2. Construct VMInstance
         var createdInst: VMInstance? = null
         val vmInst = VMInstance(context, config) { newState ->
-            _state.value = newState
-            if (newState == VMState.ERROR) {
+            if (newState == VMState.ERROR || newState == VMState.FAILED) {
                 val pc = createdInst?.cpu?.pc ?: 0L
                 _lastError.value = VMError.unexpectedShutdown(exitCode = 1, lastPc = pc)
+                cleanupInternal()
+                _state.value = VMState.STOPPED
+            } else {
+                _state.value = newState
             }
         }
         createdInst = vmInst

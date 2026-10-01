@@ -38,7 +38,8 @@ public:
         const std::string& kernelPath = "",
         const std::string& initramfsPath = "",
         const std::string& cmdline = "",
-        const std::string& consoleDev = ""
+        const std::string& consoleDev = "",
+        const std::string& isoPath = ""
     );
     ~NativeVMEngine();
 
@@ -74,6 +75,7 @@ private:
 
     size_t ramMb;
     std::string diskImagePath;
+    std::string isoImagePath;
     int cores;
     GuestArchitecture guestArch;
     bool requestHardwareVirt;
