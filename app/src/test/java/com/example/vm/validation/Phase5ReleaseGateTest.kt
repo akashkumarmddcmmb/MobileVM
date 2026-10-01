@@ -226,4 +226,49 @@ class Phase5ReleaseGateTest {
         // Verified during repo audit
         assertTrue(true)
     }
+
+    @Test
+    fun testSelectableCPUAndRAM_ValidationLimits() {
+        // Invalid CPU option (e.g. 3 cores)
+        val invalidCoresConfig = VMConfig(
+            id = 110L,
+            name = "InvalidCoresVM",
+            cpuCores = 3, // Only 1, 2, 4, 6, 8 allowed
+            ramSizeMb = 1024,
+            kernelImagePath = validKernelFile.absolutePath,
+            initramfsPath = validInitrdFile.absolutePath,
+            diskImagePath = validDiskFile.absolutePath
+        )
+        val resCores = VMStartValidator.validate(context, invalidCoresConfig)
+        assertTrue(resCores is VMStartValidator.ValidationResult.Invalid)
+        assertEquals(VMErrorCategory.BACKEND_UNAVAILABLE, (resCores as VMStartValidator.ValidationResult.Invalid).error.category)
+
+        // Invalid RAM option (e.g. 1234 MB)
+        val invalidRamConfig = VMConfig(
+            id = 111L,
+            name = "InvalidRamVM",
+            cpuCores = 2,
+            ramSizeMb = 1234, // Not allowed
+            kernelImagePath = validKernelFile.absolutePath,
+            initramfsPath = validInitrdFile.absolutePath,
+            diskImagePath = validDiskFile.absolutePath
+        )
+        val resRam = VMStartValidator.validate(context, invalidRamConfig)
+        assertTrue(resRam is VMStartValidator.ValidationResult.Invalid)
+        assertEquals(VMErrorCategory.INSUFFICIENT_RAM, (resRam as VMStartValidator.ValidationResult.Invalid).error.category)
+
+        // CPU cores overcommit limit (e.g. 16 cores)
+        val overcommitConfig = VMConfig(
+            id = 112L,
+            name = "OvercommitVM",
+            cpuCores = 16, // Exceeds host capability
+            ramSizeMb = 1024,
+            kernelImagePath = validKernelFile.absolutePath,
+            initramfsPath = validInitrdFile.absolutePath,
+            diskImagePath = validDiskFile.absolutePath
+        )
+        val resOver = VMStartValidator.validate(context, overcommitConfig)
+        assertTrue(resOver is VMStartValidator.ValidationResult.Invalid)
+        assertEquals(VMErrorCategory.BACKEND_UNAVAILABLE, (resOver as VMStartValidator.ValidationResult.Invalid).error.category)
+    }
 }

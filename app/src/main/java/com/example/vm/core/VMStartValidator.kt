@@ -38,6 +38,43 @@ object VMStartValidator {
         val memoryManager = MemoryManager(context)
         val hostArch = HostArchitecture.detect()
 
+        // CPU & RAM Option Validation
+        val allowedRamOptions = listOf(512, 1024, 1536, 2048, 3072, 4096, 6144, 7168, 8192)
+        if (config.ramSizeMb !in allowedRamOptions) {
+            return ValidationResult.Invalid(
+                VMError(
+                    category = VMErrorCategory.INSUFFICIENT_RAM,
+                    summary = "Invalid RAM Configuration: ${config.ramSizeMb} MB",
+                    technicalDetails = "The guest RAM must be manually configured to one of the authorized manual selection settings.",
+                    suggestedRemedy = "Configure the guest RAM to one of the permitted configurations (512 MB, 1 GB, 2 GB, 3 GB, 4 GB, 6 GB, 7 GB, 8 GB)."
+                )
+            )
+        }
+
+        val allowedCoreOptions = listOf(1, 2, 4, 6, 8)
+        if (config.cpuCores !in allowedCoreOptions) {
+            return ValidationResult.Invalid(
+                VMError(
+                    category = VMErrorCategory.BACKEND_UNAVAILABLE,
+                    summary = "Invalid CPU Core Configuration: ${config.cpuCores} Cores",
+                    technicalDetails = "The configured core count must be manually configured to 2, 4, 6, or 8 cores.",
+                    suggestedRemedy = "Select 2 Cores, 4 Cores, 6 Cores, or 8 Cores in the configuration tab."
+                )
+            )
+        }
+
+        val hostCores = maxOf(Runtime.getRuntime().availableProcessors(), 2)
+        if (config.cpuCores > hostCores) {
+            return ValidationResult.Invalid(
+                VMError(
+                    category = VMErrorCategory.BACKEND_UNAVAILABLE,
+                    summary = "Core Allocation Exceeds Host Capability",
+                    technicalDetails = "Requested: ${config.cpuCores} vCPUs. Available host physical processors: $hostCores.\nCannot overcommit CPU cores beyond the native physical hardware execution bounds.",
+                    suggestedRemedy = "Reduce the allocated guest vCPU cores to a value less than or equal to $hostCores Cores (Recommended: 2 Cores)."
+                )
+            )
+        }
+
         // 1. Architecture Check
         if (config.getGuestArch() != GuestArchitecture.ARM64) {
             return ValidationResult.Invalid(

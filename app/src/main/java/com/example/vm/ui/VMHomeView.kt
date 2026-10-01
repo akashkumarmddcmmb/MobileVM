@@ -2745,7 +2745,7 @@ fun VMConfigDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        listOf(1, 2, 4, 8).forEach { cores ->
+                        listOf(2, 4, 6, 8).forEach { cores ->
                             val isSelected = cpuCores == cores
                             Button(
                                 onClick = { cpuCores = cores },
@@ -2792,10 +2792,12 @@ fun VMConfigDialog(
                         listOf(
                             512 to "512M",
                             1024 to "1G",
-                            1536 to "1.5G",
                             2048 to "2G",
                             3072 to "3G",
-                            4096 to "4G"
+                            4096 to "4G",
+                            6144 to "6G",
+                            7168 to "7G",
+                            8192 to "8G"
                         ).forEach { (ram, label) ->
                             val isSelected = ramSizeMb == ram
                             val optionSafety = memoryManager.getMemorySafetyRecommendation(ram)

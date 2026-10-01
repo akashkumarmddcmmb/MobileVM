@@ -637,7 +637,7 @@ fun CpuSettingsTab(
 
         Text("vCPU Cores", fontSize = 11.sp, color = Color.Gray)
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf(1, 2, 4).forEach { cores ->
+            listOf(2, 4, 6, 8).forEach { cores ->
                 FilterChip(
                     selected = cpuCores == cores,
                     onClick = { onCpuCoresChange(cores) },
@@ -679,7 +679,7 @@ fun MemorySettingsTab(
 
         Text("Configured RAM", fontSize = 11.sp, color = Color.Gray)
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            listOf(512, 1024, 1536, 2048, 3072, 4096).forEach { mb ->
+            listOf(512, 1024, 2048, 3072, 4096, 6144, 7168, 8192).forEach { mb ->
                 FilterChip(
                     selected = ramMb == mb,
                     onClick = { onRamMbChange(mb) },
