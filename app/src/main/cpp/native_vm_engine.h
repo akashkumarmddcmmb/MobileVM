@@ -24,7 +24,10 @@ enum class VMNativeState {
     STOPPED = 6,
     ERROR = 7,
     NOT_VERIFIED = 8,
-    BOOTING = 9
+    BOOTING = 9,
+    SHUTTING_DOWN = 10,
+    REBOOTING = 11,
+    CRASH_DETECTED = 12
 };
 
 class NativeVMEngine {

@@ -694,10 +694,11 @@ fun VMCard(
             VMState.PAUSED -> Color(0xFFFFD54F)
             VMState.SAVING -> Color(0xFFFFB300)
             VMState.RESTORING -> Color(0xFFCE93D8)
-            VMState.STOPPING -> Color(0xFFFFB300)
+            VMState.STOPPING, VMState.SHUTTING_DOWN -> Color(0xFFFFB300)
+            VMState.REBOOTING -> Color(0xFF00E5FF)
             VMState.NOT_VERIFIED -> Color(0xFFFF9100)
             VMState.STOPPED -> Color.Gray
-            VMState.ERROR, VMState.FAILED -> Color(0xFFFF5252)
+            VMState.ERROR, VMState.FAILED, VMState.CRASH_DETECTED -> Color(0xFFFF5252)
         },
         label = "stateColor"
     )

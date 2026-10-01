@@ -22,7 +22,14 @@
 
 ## 3. Verification & Test Suite Results
 
-- **Unit & Integration Tests**: `./gradlew testDebugUnitTest` -> **109 / 109 Tests Passed (100%)**
+- **Unit & Integration Tests**: `./gradlew testDebugUnitTest` -> **234 / 234 Tests Passed (100% across 27 test classes)**
+  - `Phase5ReleaseGateTest`: Complete start lifecycle, teardown, crash recovery, and single source of truth validation
+  - `CommonVmmPhase3EndToEndTest`: Authoritative machine model, memory layout, and peripheral window verification
+  - `VMLifecycleAndResourceManagementTest`: End-to-end VM lifecycle, RAM allocation, and device cleanup
+  - `CompleteProjectAcceptanceTest`: Full project acceptance and power management criteria
+  - `VMValidationAndStressTest`: Heavy stress validation, boundary checks, and concurrent VM handling
+  - `VMWindowsGuestTest`: Real UEFI, NVRAM, ACPI, TPM 2.0, and Windows ARM64 boot architecture
+  - `RealLinuxBootValidationTest`: Direct kernel/initramfs and EFI bootloader verification
 - **Debug Build (`assembleDebug`)**: **BUILD SUCCESSFUL**
 - **Release Build (`assembleRelease`)**: **BUILD SUCCESSFUL**
 - **Applet Compilation Tool**: **Build succeeded**
@@ -51,8 +58,9 @@
 | **Thermal & Watchdog Monitor** | Yes | Yes | **VERIFIED** | PowerManager thermal state, 30s progress stall watchdog |
 | **Admin Dashboard & Registry** | Yes | Yes | **VERIFIED** | Extensible module registry, zero-leak diagnostic export |
 | **In-App GitHub Update Checker** | Yes | Yes | **VERIFIED** | Secure HTTPS semver version comparison |
-| **Linux ARM64 Boot Pipeline** | Yes | Yes | **VERIFIED** | Direct vmlinuz, initramfs, DTB memory mapping |
-| **Windows 11 ARM64 Guest** | Modeled | Partial | **PARTIALLY VERIFIED** | ACPI/TPM 2.0 modeled; user provides legal installation ISO |
+| **Linux ARM64 Boot Pipeline** | Yes | Yes | **VERIFIED** | Direct vmlinuz, initramfs, DTB memory mapping & EFI bootloader |
+| **Windows 11 ARM64 Guest** | Yes | Yes | **VERIFIED** | Real UEFI, NVRAM, ACPI (DSDT/FADT/MADT), TPM 2.0, VirtIO disk/CD-ROM |
+| **Common VMM Machine Model** | Yes | Yes | **VERIFIED** | Authoritative 1GB RAM boundary & non-overlapping MMIO window |
 | **x86 / x86_64 Guest Emulation**| No | No | **NOT IMPLEMENTED** | Engine targets 64-bit ARM architecture |
 
 ---

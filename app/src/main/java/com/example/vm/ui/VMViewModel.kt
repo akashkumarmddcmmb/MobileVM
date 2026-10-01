@@ -551,6 +551,22 @@ class VMViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun markOsInstallationComplete(config: VMConfig) {
+        viewModelScope.launch {
+            val updated = com.example.vm.core.VMBootManager.markOsInstallationComplete(getApplication(), config)
+            saveFullConfig(updated)
+            _errorMessage.value = "OS Installation marked complete. Boot order prioritized to virtual disk."
+        }
+    }
+
+    fun ejectInstallerIso(config: VMConfig) {
+        viewModelScope.launch {
+            val updated = com.example.vm.core.VMBootManager.ejectInstallerIso(config)
+            saveFullConfig(updated)
+            _errorMessage.value = "Installer ISO media ejected."
+        }
+    }
+
     private val vmOperationMutex = kotlinx.coroutines.sync.Mutex()
 
     fun startVM(config: VMConfig) {
@@ -634,6 +650,50 @@ class VMViewModel(application: Application) : AndroidViewModel(application) {
                 val active = _activeVM.value
                 if (active != null) {
                     val err = active.stop()
+                    if (err != null) {
+                        _errorMessage.value = err
+                    } else {
+                        clearErrorMessage()
+                    }
+                }
+            } finally {
+                vmOperationMutex.unlock()
+            }
+        }
+    }
+
+    /**
+     * Graceful Shutdown: Sends normal power off request to guest OS.
+     */
+    fun gracefulShutdownVM() {
+        viewModelScope.launch {
+            vmOperationMutex.lock()
+            try {
+                val active = _activeVM.value
+                if (active != null) {
+                    val err = active.gracefulShutdown()
+                    if (err != null) {
+                        _errorMessage.value = err
+                    } else {
+                        clearErrorMessage()
+                    }
+                }
+            } finally {
+                vmOperationMutex.unlock()
+            }
+        }
+    }
+
+    /**
+     * Force Power Off: Abruptly cuts power without guest handshake.
+     */
+    fun forcePowerOffVM() {
+        viewModelScope.launch {
+            vmOperationMutex.lock()
+            try {
+                val active = _activeVM.value
+                if (active != null) {
+                    val err = active.forcePowerOff()
                     if (err != null) {
                         _errorMessage.value = err
                     } else {

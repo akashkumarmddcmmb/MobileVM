@@ -40,6 +40,11 @@ data class VMConfig(
     val mouseMode: String = "Touch Mouse",
     val debugLogging: Boolean = false,
     val cpuTracing: Boolean = false,
+    val osInstalled: Boolean = false,
+    val externalTerminalEnabled: Boolean = false,
+    val externalTerminalPort: Int = 2222,
+    val externalTerminalToken: String = "",
+    val uefiFirmwarePath: String = "",
     val lastStarted: Long = 0L,
     val createdAt: Long = System.currentTimeMillis()
 ) {

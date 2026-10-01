@@ -16,6 +16,9 @@ enum class VMState {
     PAUSED,
     SAVING,
     RESTORING,
+    SHUTTING_DOWN,
+    REBOOTING,
+    CRASH_DETECTED,
     STOPPING,
     STOPPED,
     ERROR,
@@ -27,18 +30,22 @@ enum class VMState {
     fun isActive(): Boolean = this == RUNNING || this == STARTING || this == BOOTING || 
                               this == KERNEL_STARTED || this == INIT_STARTED || 
                               this == ROOTFS_MOUNTED || this == USERSPACE_READY || 
-                              this == PAUSED || this == SAVING || this == RESTORING
+                              this == PAUSED || this == SAVING || this == RESTORING ||
+                              this == SHUTTING_DOWN || this == REBOOTING
 
     fun canStart(): Boolean = this == CREATED || this == CONFIGURED || this == READY || 
-                              this == STOPPED || this == ERROR || this == FAILED || this == NOT_VERIFIED
+                              this == STOPPED || this == ERROR || this == FAILED || this == NOT_VERIFIED ||
+                              this == CRASH_DETECTED
     fun canStop(): Boolean = this == RUNNING || this == PAUSED || this == STARTING || 
                              this == BOOTING || this == KERNEL_STARTED || this == INIT_STARTED || 
-                             this == ROOTFS_MOUNTED || this == USERSPACE_READY || this == SAVING
+                             this == ROOTFS_MOUNTED || this == USERSPACE_READY || this == SAVING ||
+                             this == SHUTTING_DOWN || this == REBOOTING || this == CRASH_DETECTED
     fun canPause(): Boolean = this == RUNNING
     fun canResume(): Boolean = this == PAUSED
     fun canReset(): Boolean = this == RUNNING || this == PAUSED || this == STARTING || 
                               this == BOOTING || this == KERNEL_STARTED || this == INIT_STARTED || 
-                              this == ROOTFS_MOUNTED || this == USERSPACE_READY
+                              this == ROOTFS_MOUNTED || this == USERSPACE_READY ||
+                              this == SHUTTING_DOWN || this == REBOOTING
     fun canSaveSnapshot(): Boolean = this == RUNNING || this == PAUSED
     fun canRestoreSnapshot(): Boolean = this == STOPPED || this == PAUSED
 }

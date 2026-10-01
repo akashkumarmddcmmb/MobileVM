@@ -159,6 +159,9 @@ class VMStateSnapshotTest {
         assertTrue(VMState.ERROR.isTerminal())
         assertFalse(VMState.SAVING.isTerminal())
         assertFalse(VMState.RESTORING.isTerminal())
+        assertFalse(VMState.CRASH_DETECTED.isTerminal())
+        assertTrue(VMState.CRASH_DETECTED.canStop())
+        assertTrue(VMState.CRASH_DETECTED.canStart())
     }
 
     @Test

@@ -325,11 +325,50 @@ class VMRuntimeManager(
         return false
     }
 
-    fun resetVM(onComplete: ((VMError?) -> Unit)? = null) {
+    /**
+     * Graceful Shutdown: Requests guest OS to execute an orderly shutdown.
+     */
+    fun gracefulShutdownVM(onComplete: (() -> Unit)? = null) {
+        controlExecutor.execute {
+            synchronized(lifecycleLock) {
+                if (_state.value.canStop()) {
+                    transitionTo(VMState.SHUTTING_DOWN, "Guest OS shutdown requested")
+                    activeEngine?.gracefulShutdown()
+                    stopVMSync()
+                }
+            }
+            onComplete?.invoke()
+        }
+    }
+
+    /**
+     * Force Power Off: Immediately cuts power and halts execution without guest handshake.
+     */
+    fun forcePowerOffVM(onComplete: (() -> Unit)? = null) {
+        controlExecutor.execute {
+            synchronized(lifecycleLock) {
+                Log.w(TAG, "Force power off requested. Halting immediately.")
+                activeEngine?.forcePowerOff()
+                stopVMSync()
+            }
+            onComplete?.invoke()
+        }
+    }
+
+    /**
+     * Real Reboot: Re-evaluates boot order and restarts installed OS or installer.
+     */
+    fun rebootVM(onComplete: ((VMError?) -> Unit)? = null) {
         controlExecutor.execute {
             val cfg = activeConfig
+            synchronized(lifecycleLock) {
+                transitionTo(VMState.REBOOTING, "Reboot initiated")
+            }
             stopVMSync()
             if (cfg != null) {
+                // Re-evaluate boot target to ensure installed OS boots after installation
+                val effectiveTarget = com.example.vm.core.VMBootManager.resolveEffectiveBootTarget(context, cfg)
+                Log.i(TAG, "Rebooting into effective target: ${effectiveTarget.description}")
                 val err = startVMSync(cfg)
                 onComplete?.invoke(err)
             } else {
@@ -338,8 +377,12 @@ class VMRuntimeManager(
         }
     }
 
+    fun resetVM(onComplete: ((VMError?) -> Unit)? = null) {
+        rebootVM(onComplete)
+    }
+
     fun restartVM(onComplete: ((VMError?) -> Unit)? = null) {
-        resetVM(onComplete)
+        rebootVM(onComplete)
     }
 
     /**

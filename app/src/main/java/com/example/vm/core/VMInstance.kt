@@ -210,7 +210,13 @@ class VMInstance(
 
                     val nativeStateCode = NativeVMBinding.nativeGetState(nativeHandle)
                     val currentNativeState = mapNativeState(nativeStateCode)
-                    if (currentNativeState != _state.value) {
+                    if (currentNativeState == VMState.CRASH_DETECTED || currentNativeState == VMState.ERROR || currentNativeState == VMState.FAILED) {
+                        setVMState(VMState.CRASH_DETECTED)
+                        setVMState(VMState.STOPPING)
+                        stop()
+                        setVMState(VMState.STOPPED)
+                        break
+                    } else if (currentNativeState != _state.value) {
                         setVMState(currentNativeState)
                         if (currentNativeState.isTerminal()) {
                             break
@@ -264,7 +270,10 @@ class VMInstance(
                         consoleBackend.writeTxChar('\n')
                         stepDisassembly.forEach { consoleBackend.writeTxChar(it) }
                         consoleBackend.writeTxChar('\n')
-                        setVMState(VMState.ERROR)
+                        setVMState(VMState.CRASH_DETECTED)
+                        setVMState(VMState.STOPPING)
+                        stop()
+                        setVMState(VMState.STOPPED)
                         break
                     }
 
@@ -325,6 +334,16 @@ class VMInstance(
         return true
     }
 
+    fun triggerGuestShutdown() {
+        setVMState(VMState.SHUTTING_DOWN)
+        deviceManager.powerControllerWrite(0x02)
+        if (nativeHandle != 0L) {
+            NativeVMBinding.nativeWriteSerialRx(nativeHandle, 0x03.toByte())
+        } else {
+            cpu.isHalted = true
+        }
+    }
+
     fun reset(): Boolean {
         stop()
         if (nativeHandle != 0L) {
@@ -362,6 +381,9 @@ class VMInstance(
             6 -> VMState.STOPPED
             8 -> VMState.NOT_VERIFIED
             9 -> VMState.BOOTING
+            10 -> VMState.SHUTTING_DOWN
+            11 -> VMState.REBOOTING
+            12 -> VMState.CRASH_DETECTED
             else -> VMState.ERROR
         }
     }

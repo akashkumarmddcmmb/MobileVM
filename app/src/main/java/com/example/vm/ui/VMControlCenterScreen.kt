@@ -51,6 +51,7 @@ fun VMControlCenterScreen(
 
     var activeTab by remember { mutableIntStateOf(0) } // 0: Overview/Control, 1: General, 2: CPU, 3: Memory, 4: Storage, 5: Boot, 6: Network, 7: Serial, 8: Display, 9: Input, 10: USB, 11: Advanced, 12: Logs
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showForceStopDialog by remember { mutableStateOf(false) }
 
     // Mutable settings fields for configuration editing
     var nameInput by remember(config) { mutableStateOf(config.name) }
@@ -84,6 +85,37 @@ fun VMControlCenterScreen(
                 showDeleteDialog = false
                 onBack()
             }
+        )
+    }
+
+    if (showForceStopDialog) {
+        AlertDialog(
+            onDismissRequest = { showForceStopDialog = false },
+            title = { Text("Force Power Off VM", fontWeight = FontWeight.Bold, color = Color(0xFFFF5252)) },
+            text = {
+                Text(
+                    "Warning: Forcing power off abruptly cuts power to the virtual machine without guest operating system coordination. This may cause unsaved data loss or virtual disk filesystem corruption.\n\nAre you sure you want to force power off '${config.name}'?",
+                    color = Color.White
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showForceStopDialog = false
+                        viewModel.forcePowerOffVM()
+                        Toast.makeText(context, "VM Forced Stopped", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5252))
+                ) {
+                    Text("FORCE OFF", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showForceStopDialog = false }) {
+                    Text("CANCEL", color = Color.LightGray)
+                }
+            },
+            containerColor = Color(0xFF1E2833)
         )
     }
 
@@ -144,15 +176,9 @@ fun VMControlCenterScreen(
                 onStart = { viewModel.startVM(config) },
                 onPause = { viewModel.pauseVM() },
                 onResume = { viewModel.resumeVM() },
-                onStop = { viewModel.stopVM() },
-                onForceStop = {
-                    activeVM?.stop()
-                    Toast.makeText(context, "VM Forced Stopped", Toast.LENGTH_SHORT).show()
-                },
-                onRestart = {
-                    viewModel.stopVM()
-                    viewModel.startVM(config)
-                },
+                onStop = { viewModel.gracefulShutdownVM() },
+                onForceStop = { showForceStopDialog = true },
+                onRestart = { viewModel.restartVM() },
                 onOpenTerminal = onOpenTerminal,
                 onSelectTab = { tabIndex -> activeTab = tabIndex }
             )
@@ -330,7 +356,7 @@ fun VmRuntimeHeaderBar(config: VMConfig, vmState: VMState, engine: VMEngine?) {
         VMState.RUNNING -> Color(0xFF00E676)
         VMState.PAUSED -> Color(0xFFFFB74D)
         VMState.STARTING, VMState.STOPPING -> Color(0xFF81D4FA)
-        VMState.ERROR, VMState.NOT_VERIFIED -> Color(0xFFFF5252)
+        VMState.ERROR, VMState.NOT_VERIFIED, VMState.CRASH_DETECTED, VMState.FAILED -> Color(0xFFFF5252)
         else -> Color.Gray
     }
 
@@ -887,6 +913,47 @@ fun BootSettingsTab(
             Icon(Icons.Default.CloudDownload, contentDescription = "Provision", tint = Color.Black)
             Spacer(modifier = Modifier.width(8.dp))
             Text("1-Click Provision Default Linux ARM64 Files", color = Color.Black, fontWeight = FontWeight.Bold)
+        }
+
+        if (config.isoPath.isNotBlank()) {
+            OutlinedButton(
+                onClick = { viewModel.ejectInstallerIso(config) },
+                enabled = !isRunning,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFFB74D)),
+                modifier = Modifier.fillMaxWidth().testTag("btn_eject_installer_iso")
+            ) {
+                Icon(Icons.Default.Delete, contentDescription = "Eject ISO", modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Eject Installer ISO (${File(config.isoPath).name})", fontSize = 11.sp)
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Text("Installed OS Boot Priority", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text(
+                    if (config.osInstalled) "OS installed on virtual disk. Subsequent boots prioritize virtual disk."
+                    else "OS installation pending. Set to prioritize persistent disk over installer ISO.",
+                    fontSize = 10.sp,
+                    color = Color.Gray
+                )
+            }
+            Switch(
+                checked = config.osInstalled,
+                onCheckedChange = { isInstalled ->
+                    if (isInstalled) {
+                        viewModel.markOsInstallationComplete(config)
+                    } else {
+                        viewModel.saveFullConfig(config.copy(osInstalled = false))
+                    }
+                },
+                enabled = !isRunning,
+                modifier = Modifier.testTag("switch_os_installed")
+            )
         }
     }
 }

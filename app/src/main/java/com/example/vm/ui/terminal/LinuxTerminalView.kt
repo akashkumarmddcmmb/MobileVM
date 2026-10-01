@@ -55,7 +55,7 @@ fun LinuxTerminalView(
 
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
-    var inputCharBuffer by remember { mutableStateOf("") }
+    var inputCharBuffer by remember { mutableStateOf(" ") }
     var isCtrlActive by remember { mutableStateOf(false) }
     var isAltActive by remember { mutableStateOf(false) }
 
@@ -251,11 +251,33 @@ fun LinuxTerminalView(
         ) {
             TextField(
                 value = inputCharBuffer,
-                onValueChange = { inputCharBuffer = it },
+                onValueChange = { newValue ->
+                    if (isRunning) {
+                        if (newValue.length > 1) {
+                            val added = newValue.substring(1)
+                            for (c in added) {
+                                val charToSend = if (isCtrlActive && c in 'a'..'z') {
+                                    (c.code - 'a'.code + 1).toByte()
+                                } else if (isCtrlActive && c in 'A'..'Z') {
+                                    (c.code - 'A'.code + 1).toByte()
+                                } else {
+                                    c.code.toByte()
+                                }
+                                engine?.serialConsole?.sendRawByte(charToSend)
+                            }
+                            isCtrlActive = false
+                            isAltActive = false
+                        } else if (newValue.length < 1) {
+                            // Backspace pressed
+                            engine?.serialConsole?.sendRawByte(0x7F.toByte())
+                        }
+                    }
+                    inputCharBuffer = " "
+                },
                 textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
                 placeholder = {
                     Text(
-                        if (isRunning) "Tap to type with Android keyboard (Gboard)..." else "VM must be RUNNING to send input",
+                        if (isRunning) "Type here instantly (Android Keyboard)..." else "VM must be RUNNING to send input",
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
                         color = Color.DarkGray
@@ -268,29 +290,10 @@ fun LinuxTerminalView(
                     .focusRequester(focusRequester)
                     .testTag("terminal_stdin_input"),
                 keyboardOptions = KeyboardOptions(
-                    imeAction = ImeAction.Send,
+                    imeAction = ImeAction.None,
                     autoCorrectEnabled = false,
                     keyboardType = KeyboardType.Ascii
                 ),
-                keyboardActions = KeyboardActions(onSend = {
-                    if (inputCharBuffer.isNotEmpty() && isRunning) {
-                        for (c in inputCharBuffer) {
-                            val charToSend = if (isCtrlActive && c in 'a'..'z') {
-                                (c.code - 'a'.code + 1).toByte()
-                            } else if (isCtrlActive && c in 'A'..'Z') {
-                                (c.code - 'A'.code + 1).toByte()
-                            } else {
-                                c.code.toByte()
-                            }
-                            engine?.serialConsole?.sendRawByte(charToSend)
-                        }
-                        // Send carriage return + newline
-                        engine?.serialConsole?.sendRawBytes(byteArrayOf('\r'.code.toByte(), '\n'.code.toByte()))
-                        inputCharBuffer = ""
-                        isCtrlActive = false
-                        isAltActive = false
-                    }
-                }),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color(0xFF141A23),
                     unfocusedContainerColor = Color(0xFF0F141C),
@@ -303,29 +306,16 @@ fun LinuxTerminalView(
 
             Button(
                 onClick = {
-                    if (inputCharBuffer.isNotEmpty() && isRunning) {
-                        for (c in inputCharBuffer) {
-                            val charToSend = if (isCtrlActive && c in 'a'..'z') {
-                                (c.code - 'a'.code + 1).toByte()
-                            } else if (isCtrlActive && c in 'A'..'Z') {
-                                (c.code - 'A'.code + 1).toByte()
-                            } else {
-                                c.code.toByte()
-                            }
-                            engine?.serialConsole?.sendRawByte(charToSend)
-                        }
+                    if (isRunning) {
                         // Send carriage return + newline
                         engine?.serialConsole?.sendRawBytes(byteArrayOf('\r'.code.toByte(), '\n'.code.toByte()))
-                        inputCharBuffer = ""
-                        isCtrlActive = false
-                        isAltActive = false
                     }
                 },
-                enabled = isRunning && inputCharBuffer.isNotEmpty(),
+                enabled = isRunning,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                 modifier = Modifier.testTag("btn_send_terminal")
             ) {
-                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = Color.Black)
+                Text("Enter", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
             }
         }
     }

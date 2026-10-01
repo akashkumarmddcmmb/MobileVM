@@ -226,7 +226,7 @@ int NativeVMEngine::stepCycles(int maxCycles) {
     } else if (powerEv == NativePowerEvent::SHUTDOWN || cpu->getState() == NativeCPUState::HALTED) {
         state = VMNativeState::STOPPED;
     } else if (powerEv == NativePowerEvent::TRAP_ERROR || cpu->getState() == NativeCPUState::TRAP_FAULT) {
-        state = VMNativeState::ERROR;
+        state = VMNativeState::CRASH_DETECTED;
     }
 
     return static_cast<int>(executed);

@@ -82,6 +82,8 @@ class VMEngine(
         private set
     var inputBackend: InputBackend = AndroidInputBackend()
         private set
+    var secureTerminalServer: com.example.vm.console.VMSecureTerminalServer? = null
+        private set
 
     private val monitorScope = CoroutineScope(Dispatchers.Default + Job())
     private var monitorJob: Job? = null
@@ -123,9 +125,11 @@ class VMEngine(
         // 2. Construct VMInstance
         var createdInst: VMInstance? = null
         val vmInst = VMInstance(context, config) { newState ->
-            if (newState == VMState.ERROR || newState == VMState.FAILED) {
+            if (newState == VMState.CRASH_DETECTED || newState == VMState.ERROR || newState == VMState.FAILED) {
                 val pc = createdInst?.cpu?.pc ?: 0L
                 _lastError.value = VMError.unexpectedShutdown(exitCode = 1, lastPc = pc)
+                _state.value = VMState.CRASH_DETECTED
+                _state.value = VMState.STOPPING
                 cleanupInternal()
                 _state.value = VMState.STOPPED
             } else {
@@ -165,6 +169,17 @@ class VMEngine(
         }
 
         _lastError.value = null
+        if (config.externalTerminalEnabled) {
+            try {
+                secureTerminalServer = com.example.vm.console.VMSecureTerminalServer(
+                    engine = this,
+                    port = config.externalTerminalPort,
+                    customAuthToken = config.externalTerminalToken
+                ).apply { start() }
+            } catch (e: Exception) {
+                Log.w(TAG, "External terminal server start warning: ${e.message}")
+            }
+        }
         startTelemetryMonitor(vmInst)
         Log.i(TAG, "VM '${config.name}' started successfully")
         return null
@@ -224,6 +239,12 @@ class VMEngine(
     private fun cleanupInternal() {
         monitorJob?.cancel()
         monitorJob = null
+        try {
+            secureTerminalServer?.stop()
+            secureTerminalServer = null
+        } catch (e: Exception) {
+            Log.w(TAG, "Error stopping secure terminal server: ${e.message}")
+        }
         val vm = instance
         if (vm != null) {
             try {
@@ -234,6 +255,36 @@ class VMEngine(
             }
             instance = null
         }
+    }
+
+    /**
+     * Graceful Shutdown: Requests the guest operating system to initiate an orderly shutdown.
+     */
+    fun gracefulShutdown(): String? = synchronized(lifecycleLock) {
+        val currentState = _state.value
+        Log.i(TAG, "Graceful shutdown requested for VM '${config.name}' (current state: $currentState)")
+        if (!currentState.canStop()) {
+            return "VM is in state $currentState and cannot be shut down."
+        }
+        val vm = instance ?: return "VM Instance is not active."
+        _state.value = VMState.SHUTTING_DOWN
+        vm.triggerGuestShutdown()
+
+        cleanupInternal()
+        _state.value = VMState.STOPPED
+        _cpuUsage.value = null
+        _ramUsage.value = 0f
+        _cpuRegisters.value = emptyMap()
+        Log.i(TAG, "VM '${config.name}' cleanly shut down")
+        return null
+    }
+
+    /**
+     * Force Power Off: Immediately cuts power and halts CPU execution.
+     */
+    fun forcePowerOff(): String? = synchronized(lifecycleLock) {
+        Log.i(TAG, "Force power off requested for VM '${config.name}'")
+        return stop()
     }
 
     fun pause(): String? = synchronized(lifecycleLock) {
@@ -269,9 +320,12 @@ class VMEngine(
 
     fun restart(): VMError? = synchronized(lifecycleLock) {
         Log.i(TAG, "Restart requested for VM '${config.name}'. Executing sequential stop-cleanup-start.")
+        _state.value = VMState.REBOOTING
         stop()
         return start()
     }
+
+    fun reboot(): VMError? = restart()
 
     fun clearError() {
         _lastError.value = null
