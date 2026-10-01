@@ -386,6 +386,20 @@ fun DashboardTab(
 ) {
     var vmToDelete by remember { mutableStateOf<VMConfig?>(null) }
     var vmDiskToAllocate by remember { mutableStateOf<VMConfig?>(null) }
+    var bootManagerVmConfig by remember { mutableStateOf<VMConfig?>(null) }
+
+    bootManagerVmConfig?.let { config ->
+        BackHandler { bootManagerVmConfig = null }
+        com.example.vm.ui.boot.WindowsBootManagerDialog(
+            config = config,
+            viewModel = viewModel,
+            vmState = activeVM?.state?.collectAsStateWithLifecycle()?.value ?: VMState.STOPPED,
+            onDismiss = { bootManagerVmConfig = null },
+            onStartVmWithBootTarget = { updatedConfig ->
+                viewModel.startVM(updatedConfig)
+            }
+        )
+    }
 
     vmToDelete?.let { config ->
         BackHandler { vmToDelete = null }
@@ -466,7 +480,8 @@ fun DashboardTab(
                             viewModel.createDiskFileExplicitly(config)
                         }
                     },
-                    onInspectDisk = { onInspectDisk(config) }
+                    onInspectDisk = { onInspectDisk(config) },
+                    onOpenBootManager = { bootManagerVmConfig = config }
                 )
             }
 
@@ -682,7 +697,8 @@ fun VMCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onCreateDisk: () -> Unit,
-    onInspectDisk: () -> Unit
+    onInspectDisk: () -> Unit,
+    onOpenBootManager: (() -> Unit)? = null
 ) {
     val state = activeVM?.state?.collectAsStateWithLifecycle()?.value ?: VMState.STOPPED
     val stateColor by animateColorAsState(
@@ -949,6 +965,14 @@ fun VMCard(
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (!isActive) {
+                        if (onOpenBootManager != null) {
+                            IconButton(
+                                onClick = onOpenBootManager,
+                                modifier = Modifier.testTag("btn_boot_manager_${config.id}")
+                            ) {
+                                Icon(Icons.Default.Tune, contentDescription = "Windows Boot Manager", tint = Color(0xFF0078D4))
+                            }
+                        }
                         IconButton(
                             onClick = onEdit,
                             modifier = Modifier.testTag("btn_edit_${config.id}")
@@ -1452,12 +1476,40 @@ fun ConsoleTab(viewModel: VMViewModel, engine: VMEngine) {
                         autoCorrectEnabled = false,
                         keyboardType = KeyboardType.Ascii
                     ),
-                    keyboardActions = KeyboardActions(onSend = {
-                        if (commandText.isNotEmpty()) {
-                            viewModel.executeConsoleCommand(commandText)
-                            commandText = ""
+                    keyboardActions = KeyboardActions(
+                        onSend = {
+                            if (commandText.isNotEmpty()) {
+                                viewModel.executeConsoleCommand(commandText)
+                                commandText = ""
+                            } else {
+                                viewModel.executeConsoleCommand("")
+                            }
+                        },
+                        onDone = {
+                            if (commandText.isNotEmpty()) {
+                                viewModel.executeConsoleCommand(commandText)
+                                commandText = ""
+                            } else {
+                                viewModel.executeConsoleCommand("")
+                            }
+                        },
+                        onGo = {
+                            if (commandText.isNotEmpty()) {
+                                viewModel.executeConsoleCommand(commandText)
+                                commandText = ""
+                            } else {
+                                viewModel.executeConsoleCommand("")
+                            }
+                        },
+                        onNext = {
+                            if (commandText.isNotEmpty()) {
+                                viewModel.executeConsoleCommand(commandText)
+                                commandText = ""
+                            } else {
+                                viewModel.executeConsoleCommand("")
+                            }
                         }
-                    }),
+                    ),
                     colors = TextFieldDefaults.colors(
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.LightGray,
@@ -2555,8 +2607,8 @@ fun VMConfigDialog(
     var name by remember { mutableStateOf(config?.name ?: "Ubuntu_ARM64") }
     var osType by remember { mutableStateOf(config?.guestOsType ?: "Ubuntu 24.04 ARM64") }
     var selectedArch by remember { mutableStateOf(config?.getGuestArch() ?: GuestArchitecture.ARM64) }
-    var cpuCores by remember { mutableStateOf(config?.cpuCores ?: 2) }
-    var ramSizeMb by remember { mutableStateOf(config?.ramSizeMb ?: 2048) }
+    var cpuCores by remember { mutableStateOf(config?.cpuCores ?: 0) }
+    var ramSizeMb by remember { mutableStateOf(config?.ramSizeMb ?: 0) }
     var diskSizeGb by remember { mutableStateOf(config?.diskSizeGb ?: 20) }
     val deviceCanVirtualize = viewModel.hostArchitecture == HostArchitecture.ARM64 && viewModel.isKvmSupported
     var useHardwareVirt by remember { mutableStateOf(config?.useHardwareVirtualization ?: (selectedArch == GuestArchitecture.ARM64 && deviceCanVirtualize)) }

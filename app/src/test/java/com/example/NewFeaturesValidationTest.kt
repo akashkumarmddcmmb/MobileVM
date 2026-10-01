@@ -74,7 +74,9 @@ class NewFeaturesValidationTest {
         val vmConfig = WindowsGuestManager.createWindowsVMConfig(
             vmName = "Win11_Test",
             isoPath = "/test/win11.iso",
-            targetDiskPath = "/test/win11_disk.img"
+            targetDiskPath = "/test/win11_disk.img",
+            allocatedRamMb = 4096,
+            allocatedCores = 2
         )
 
         assertEquals("Windows ARM64", vmConfig.guestOsType)

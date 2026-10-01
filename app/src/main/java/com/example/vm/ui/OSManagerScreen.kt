@@ -974,6 +974,9 @@ fun WindowsARM64TabContent(
     var validatedResult by remember { mutableStateOf<com.example.vm.guest.windows.WindowsValidationResult?>(null) }
     var importedIsoPath by remember { mutableStateOf<String?>(null) }
 
+    var winRamMb by remember { mutableIntStateOf(0) } // Initial state: 0 / Not Set
+    var winCores by remember { mutableIntStateOf(0) } // Initial state: 0 / Not Set
+
     val windowsIsoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
@@ -1068,15 +1071,15 @@ fun WindowsARM64TabContent(
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Column {
-                            Text("Minimum RAM", fontSize = 10.sp, color = Color.Gray)
+                            Text("Minimum RAM (OS Req)", fontSize = 10.sp, color = Color.Gray)
                             Text("4096 MB", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White, fontFamily = FontFamily.Monospace)
                         }
                         Column {
-                            Text("Minimum Disk", fontSize = 10.sp, color = Color.Gray)
+                            Text("Minimum Disk (OS Req)", fontSize = 10.sp, color = Color.Gray)
                             Text("64 GB", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White, fontFamily = FontFamily.Monospace)
                         }
                         Column {
-                            Text("vCPU Cores", fontSize = 10.sp, color = Color.Gray)
+                            Text("vCPU Cores (OS Req)", fontSize = 10.sp, color = Color.Gray)
                             Text("2+ Cores", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White, fontFamily = FontFamily.Monospace)
                         }
                         Column {
@@ -1179,26 +1182,93 @@ fun WindowsARM64TabContent(
                                 Text("Size: ${valid.isoInfo.sizeBytes / (1024 * 1024)} MB", fontSize = 11.sp, color = Color.LightGray)
 
                                 Spacer(modifier = Modifier.height(12.dp))
-                                Button(
-                                    onClick = {
-                                        val disksDir = File(context.filesDir, "app_disks").apply { mkdirs() }
-                                        val targetDisk = File(disksDir, "windows11_arm64_disk.img").absolutePath
-                                        val config = com.example.vm.guest.windows.WindowsGuestManager.createWindowsVMConfig(
-                                            vmName = "Windows 11 ARM64",
-                                            isoPath = importedIsoPath!!,
-                                            targetDiskPath = targetDisk,
-                                            allocatedRamMb = 4096,
-                                            allocatedCores = 4,
-                                            diskSizeGb = 64
+                                HorizontalDivider(color = Color(0xFF232D38))
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                Text("VM Hardware Configuration (Manual Selection)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Text("vCPU Cores:", fontSize = 11.sp, color = Color.Gray)
+                                    Text(
+                                        if (winCores > 0) "$winCores Cores" else "Not Set / Select CPU Cores",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (winCores > 0) Color(0xFF00E676) else Color(0xFFFF5252)
+                                    )
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    listOf(2, 4, 6, 8).forEach { cores ->
+                                        FilterChip(
+                                            selected = winCores == cores,
+                                            onClick = { winCores = cores },
+                                            label = { Text("$cores Cores", fontSize = 10.sp) },
+                                            modifier = Modifier.testTag("win_cores_chip_$cores")
                                         )
-                                        onCreateWindowsVm(config)
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                    modifier = Modifier.fillMaxWidth().testTag("btn_create_windows_vm")
-                                ) {
-                                    Icon(Icons.Default.PlayArrow, contentDescription = "Create", tint = Color.Black)
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Create & Configure Windows 11 VM", color = Color.Black, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Text("RAM Allocation:", fontSize = 11.sp, color = Color.Gray)
+                                    Text(
+                                        if (winRamMb > 0) (if (winRamMb >= 1024) "${winRamMb / 1024} GB" else "$winRamMb MB") else "Not Set / Select RAM",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (winRamMb > 0) Color(0xFF00E676) else Color(0xFFFF5252)
+                                    )
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    listOf(512, 1024, 2048, 3072, 4096, 6144, 7168, 8192).forEach { mb ->
+                                        FilterChip(
+                                            selected = winRamMb == mb,
+                                            onClick = { winRamMb = mb },
+                                            label = { Text(if (mb >= 1024 && mb % 1024 == 0) "${mb / 1024} GB" else if (mb >= 1024) "${mb / 1024.0} GB" else "$mb MB", fontSize = 10.sp) },
+                                            modifier = Modifier.testTag("win_ram_chip_$mb")
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            winRamMb = 0
+                                            winCores = 0
+                                        },
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF5252)),
+                                        modifier = Modifier.weight(1f).testTag("btn_reset_win_hardware")
+                                    ) {
+                                        Icon(Icons.Default.Refresh, contentDescription = "Reset", modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Reset Configuration", fontSize = 11.sp)
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            if (winRamMb <= 0 || winCores <= 0) {
+                                                Toast.makeText(context, "Please select RAM and CPU cores before starting the VM.", Toast.LENGTH_LONG).show()
+                                                return@Button
+                                            }
+                                            val disksDir = File(context.filesDir, "app_disks").apply { mkdirs() }
+                                            val targetDisk = File(disksDir, "windows11_arm64_disk.img").absolutePath
+                                            val config = com.example.vm.guest.windows.WindowsGuestManager.createWindowsVMConfig(
+                                                vmName = "Windows 11 ARM64",
+                                                isoPath = importedIsoPath!!,
+                                                targetDiskPath = targetDisk,
+                                                allocatedRamMb = winRamMb,
+                                                allocatedCores = winCores,
+                                                diskSizeGb = 64
+                                            )
+                                            onCreateWindowsVm(config)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                        modifier = Modifier.weight(1.5f).testTag("btn_create_windows_vm")
+                                    ) {
+                                        Icon(Icons.Default.PlayArrow, contentDescription = "Create", tint = Color.Black)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Create & Configure Windows 11 VM", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                    }
                                 }
                             }
                         }

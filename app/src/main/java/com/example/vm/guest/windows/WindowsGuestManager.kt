@@ -123,8 +123,8 @@ object WindowsGuestManager {
         vmName: String,
         isoPath: String,
         targetDiskPath: String,
-        allocatedRamMb: Int = 4096,
-        allocatedCores: Int = 4,
+        allocatedRamMb: Int = 0,
+        allocatedCores: Int = 0,
         diskSizeGb: Int = 64
     ): VMConfig {
         return VMConfig(
@@ -135,8 +135,8 @@ object WindowsGuestManager {
             bootOrder = "CD_ROM",
             isoPath = isoPath,
             guestArchCode = GuestArchitecture.ARM64.code,
-            cpuCores = allocatedCores.coerceAtLeast(profile.minimumCores),
-            ramSizeMb = allocatedRamMb.coerceAtLeast(profile.minimumRamMb),
+            cpuCores = allocatedCores,
+            ramSizeMb = allocatedRamMb,
             diskSizeGb = diskSizeGb.coerceAtLeast(profile.minimumDiskGb),
             diskImagePath = targetDiskPath,
             useHardwareVirtualization = true,

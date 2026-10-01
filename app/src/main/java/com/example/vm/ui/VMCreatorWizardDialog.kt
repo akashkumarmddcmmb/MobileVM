@@ -62,8 +62,8 @@ fun VMCreatorWizardDialog(
 
     // Step 4: Hardware
     var selectedBackendPref by remember { mutableStateOf("AUTO") } // AUTO, KVM, ARM64_SOFTWARE_EMULATOR
-    var cpuCores by remember { mutableIntStateOf(2) }
-    var ramSizeMb by remember { mutableIntStateOf(selectedManifest?.recommendedRamMb ?: 2048) }
+    var cpuCores by remember { mutableIntStateOf(0) } // Initial state: 0 / Not Set
+    var ramSizeMb by remember { mutableIntStateOf(0) } // Initial state: 0 / Not Set
     var storageGb by remember { mutableIntStateOf(selectedManifest?.minimumStorageGb ?: 16) }
 
     // Step 5: Boot & Network
@@ -266,6 +266,11 @@ fun VMCreatorWizardDialog(
                                     LinuxImageProvisioner.getInitramfsFile(context).absolutePath
                                 }
 
+                                if (cpuCores <= 0 || ramSizeMb <= 0) {
+                                    Toast.makeText(context, "Please select RAM and CPU cores before starting the VM.", Toast.LENGTH_LONG).show()
+                                    return@Button
+                                }
+
                                 val config = VMConfig(
                                     name = vmName.ifBlank { if (isWindows) "Windows 11 ARM64" else "MobileVM Guest" },
                                     guestOsType = selectedOsCategory,
@@ -275,8 +280,8 @@ fun VMCreatorWizardDialog(
                                     bootOrder = bootOrder,
                                     isoPath = if (modeStr == "MODE_B_ISO_INSTALLER" && manifest?.diskUrl?.isNotBlank() == true) manifest.diskUrl else "",
                                     guestArchCode = GuestArchitecture.ARM64.code,
-                                    cpuCores = if (isWindows) maxOf(cpuCores, 2) else cpuCores,
-                                    ramSizeMb = if (isWindows) maxOf(ramSizeMb, 2048) else ramSizeMb,
+                                    cpuCores = cpuCores,
+                                    ramSizeMb = ramSizeMb,
                                     diskSizeGb = if (isWindows) maxOf(storageGb, 64) else storageGb,
                                     diskImagePath = diskPath,
                                     useHardwareVirtualization = isHwVirt,
@@ -501,7 +506,15 @@ fun Step4HardwareAllocation(
         }
 
         // vCPU Cores
-        Text("vCPU Cores", fontSize = 11.sp, color = Color.Gray)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("vCPU Cores:", fontSize = 11.sp, color = Color.Gray)
+            Text(
+                if (cpuCores > 0) "$cpuCores Cores" else "Not Set / Select CPU Cores",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (cpuCores > 0) Color(0xFF00E676) else Color(0xFFFF5252)
+            )
+        }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf(2, 4, 6, 8).forEach { cores ->
                 FilterChip(
@@ -514,7 +527,15 @@ fun Step4HardwareAllocation(
         }
 
         // RAM Allocation
-        Text("Guest RAM Allocation", fontSize = 11.sp, color = Color.Gray)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("Guest RAM Allocation:", fontSize = 11.sp, color = Color.Gray)
+            Text(
+                if (ramMb > 0) (if (ramMb >= 1024) "${ramMb / 1024} GB" else "$ramMb MB") else "Not Set / Select RAM",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (ramMb > 0) Color(0xFF00E676) else Color(0xFFFF5252)
+            )
+        }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             listOf(512, 1024, 2048, 3072, 4096, 6144, 7168, 8192).forEach { mb ->
                 FilterChip(
@@ -524,6 +545,19 @@ fun Step4HardwareAllocation(
                     modifier = Modifier.testTag("ram_chip_$mb")
                 )
             }
+        }
+
+        OutlinedButton(
+            onClick = {
+                onCpuCoresChange(0)
+                onRamMbChange(0)
+            },
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF5252)),
+            modifier = Modifier.fillMaxWidth().testTag("btn_reset_wizard_hardware")
+        ) {
+            Icon(Icons.Default.Refresh, contentDescription = "Reset", modifier = Modifier.size(14.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("Reset Configuration (RAM → Not Set, CPU → Not Set)", fontSize = 11.sp)
         }
 
         // Virtual Storage Size

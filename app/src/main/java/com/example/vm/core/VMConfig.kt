@@ -15,8 +15,8 @@ data class VMConfig(
     val bootOrder: String = "VIRTUAL_DISK", // "VIRTUAL_DISK", "CD_ROM"
     val isoPath: String = "",
     val guestArchCode: Int = GuestArchitecture.ARM64.code,
-    val cpuCores: Int = 2,
-    val ramSizeMb: Int = 2048,
+    val cpuCores: Int = 0, // 0 = Not Set / Select CPU Cores
+    val ramSizeMb: Int = 0, // 0 = Not Set / Select RAM
     val diskSizeGb: Int = 20,
     val diskImagePath: String = "",
     val useHardwareVirtualization: Boolean = true,

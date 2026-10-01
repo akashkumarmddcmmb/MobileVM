@@ -39,6 +39,17 @@ object VMStartValidator {
         val hostArch = HostArchitecture.detect()
 
         // CPU & RAM Option Validation
+        if (config.ramSizeMb == 0) {
+            return ValidationResult.Invalid(
+                VMError(
+                    category = VMErrorCategory.INSUFFICIENT_RAM,
+                    summary = "Please select RAM and CPU cores before starting the VM.",
+                    technicalDetails = "RAM size is not configured (0 MB). Please select RAM and CPU cores before starting the VM.",
+                    suggestedRemedy = "Select RAM (512 MB to 8 GB) and CPU Cores (2, 4, 6, or 8 Cores) in VM Configuration."
+                )
+            )
+        }
+
         val allowedRamOptions = listOf(512, 1024, 1536, 2048, 3072, 4096, 6144, 7168, 8192)
         if (config.ramSizeMb !in allowedRamOptions) {
             return ValidationResult.Invalid(
@@ -52,25 +63,14 @@ object VMStartValidator {
         }
 
         val allowedCoreOptions = listOf(1, 2, 4, 6, 8)
-        if (config.cpuCores !in allowedCoreOptions) {
+        val effectiveCores = if (config.cpuCores == 0) 2 else config.cpuCores
+        if (effectiveCores !in allowedCoreOptions) {
             return ValidationResult.Invalid(
                 VMError(
                     category = VMErrorCategory.BACKEND_UNAVAILABLE,
                     summary = "Invalid CPU Core Configuration: ${config.cpuCores} Cores",
                     technicalDetails = "The configured core count must be manually configured to 2, 4, 6, or 8 cores.",
                     suggestedRemedy = "Select 2 Cores, 4 Cores, 6 Cores, or 8 Cores in the configuration tab."
-                )
-            )
-        }
-
-        val hostCores = maxOf(Runtime.getRuntime().availableProcessors(), 2)
-        if (config.cpuCores > hostCores) {
-            return ValidationResult.Invalid(
-                VMError(
-                    category = VMErrorCategory.BACKEND_UNAVAILABLE,
-                    summary = "Core Allocation Exceeds Host Capability",
-                    technicalDetails = "Requested: ${config.cpuCores} vCPUs. Available host physical processors: $hostCores.\nCannot overcommit CPU cores beyond the native physical hardware execution bounds.",
-                    suggestedRemedy = "Reduce the allocated guest vCPU cores to a value less than or equal to $hostCores Cores (Recommended: 2 Cores)."
                 )
             )
         }

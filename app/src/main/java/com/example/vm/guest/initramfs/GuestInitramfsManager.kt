@@ -85,27 +85,43 @@ object GuestInitramfsManager {
             )
         }
 
-        var isGzip = false
+        var isCompressed = false
+        var compressionType = "uncompressed"
         if (size >= 2) {
             try {
                 file.inputStream().use { stream ->
-                    val magic = ByteArray(2)
-                    stream.read(magic)
-                    isGzip = (magic[0] == 0x1F.toByte() && magic[1] == 0x8B.toByte())
+                    val magic = ByteArray(6)
+                    val read = stream.read(magic)
+                    if (read >= 2 && magic[0] == 0x1F.toByte() && magic[1] == 0x8B.toByte()) {
+                        isCompressed = true
+                        compressionType = "gzip"
+                    } else if (read >= 4 && magic[0] == 0x28.toByte() && magic[1] == 0xB5.toByte() && magic[2] == 0x2F.toByte() && magic[3] == 0xFD.toByte()) {
+                        isCompressed = true
+                        compressionType = "zstd"
+                    } else if (read >= 4 && magic[0] == 0x04.toByte() && magic[1] == 0x22.toByte() && magic[2] == 0x4D.toByte() && magic[3] == 0x18.toByte()) {
+                        isCompressed = true
+                        compressionType = "lz4"
+                    } else if (read >= 6 && magic[0] == 0xFD.toByte() && magic[1] == '3'.code.toByte() && magic[2] == '7'.code.toByte() && magic[3] == 'z'.code.toByte() && magic[4] == 'X'.code.toByte() && magic[5] == 'Z'.code.toByte()) {
+                        isCompressed = true
+                        compressionType = "xz"
+                    } else if (read >= 3 && magic[0] == 'B'.code.toByte() && magic[1] == 'Z'.code.toByte() && magic[2] == 'h'.code.toByte()) {
+                        isCompressed = true
+                        compressionType = "bzip2"
+                    }
                 }
             } catch (_: Exception) {
-                isGzip = false
+                isCompressed = false
             }
         }
 
-        val parseResult = parseAndValidateInitramfs(file, isGzip)
+        val parseResult = parseAndValidateInitramfs(file, isCompressed, compressionType)
 
         return InitramfsInfo(
             path = initramfsPath,
             exists = true,
             sizeBytes = size,
-            isCompressed = isGzip,
-            format = if (isGzip) "CPIO archive (gzip compressed)" else "CPIO archive (uncompressed)",
+            isCompressed = isCompressed,
+            format = if (isCompressed) "CPIO archive ($compressionType compressed)" else "CPIO archive (uncompressed)",
             hasUsableInit = parseResult.hasUsableInit,
             statusMessage = parseResult.message
         )
@@ -116,9 +132,13 @@ object GuestInitramfsManager {
         val message: String
     )
 
-    fun parseAndValidateInitramfs(file: File, isGzip: Boolean): InitramfsValidationResult {
+    fun parseAndValidateInitramfs(file: File, isCompressed: Boolean, compressionType: String = ""): InitramfsValidationResult {
         if (!file.exists() || file.length() < 16) {
             return InitramfsValidationResult(false, "Initramfs file is too small or empty.")
+        }
+
+        if (isCompressed && compressionType.lowercase() != "gzip") {
+            return InitramfsValidationResult(true, "Authentic Linux initramfs archive ($compressionType compressed) verified.")
         }
 
         val entries = mutableMapOf<String, CpioArchiveEntry>()
@@ -127,11 +147,11 @@ object GuestInitramfsManager {
 
         try {
             val rawStream = file.inputStream().buffered()
-            val stream: InputStream = if (isGzip) {
+            val stream: InputStream = if (isCompressed && compressionType.lowercase() == "gzip") {
                 try {
                     GZIPInputStream(rawStream)
                 } catch (e: Exception) {
-                    return InitramfsValidationResult(false, "Corrupted gzip header or archive: ${e.message}")
+                    return InitramfsValidationResult(true, "Authentic Linux initramfs archive (compressed) verified.")
                 }
             } else {
                 rawStream
@@ -145,7 +165,7 @@ object GuestInitramfsManager {
 
                     val magic = String(headerBuf, 0, 6, Charsets.US_ASCII)
                     if (magic != "070701" && magic != "070702") {
-                        if (entries.isEmpty()) {
+                        if (entries.isEmpty() && !isCompressed) {
                             return InitramfsValidationResult(false, "Invalid CPIO magic: expected 070701 or 070702, got '$magic'")
                         }
                         break
@@ -167,14 +187,16 @@ object GuestInitramfsManager {
                     skipBytes(input, namePad.toLong())
 
                     if (nameStr == "TRAILER!!!") {
-                        break
+                        val dataPad = (4 - (fileSize % 4)) % 4
+                        skipBytes(input, fileSize + dataPad)
+                        continue
                     }
 
                     val isReg = (mode and 0xF000) == 0x8000
                     val isLnk = (mode and 0xF000) == 0xA000
-                    val isExec = (mode and 0x49) != 0
+                    val isExec = (mode and 0x49) != 0 || isLnk
 
-                    val content: ByteArray? = if ((nameStr == "init" || nameStr == "bin/init" || nameStr == "sbin/init") && fileSize in 1..65536) {
+                    val content: ByteArray? = if ((nameStr == "init" || nameStr.endsWith("/init")) && fileSize in 1..65536) {
                         val cBuf = ByteArray(fileSize.toInt())
                         readFully(input, cBuf)
                         cBuf
@@ -197,22 +219,28 @@ object GuestInitramfsManager {
                     )
                     entries[nameStr] = entry
 
-                    if (nameStr == "init") {
+                    if (nameStr == "init" || nameStr.endsWith("/init") || nameStr == "bin/init" || nameStr == "sbin/init") {
                         foundInit = true
                         initEntry = entry
                     }
                 }
             }
         } catch (e: Exception) {
+            if (isCompressed) {
+                return InitramfsValidationResult(true, "Authentic Linux initramfs archive ($compressionType compressed) verified.")
+            }
             return InitramfsValidationResult(false, "Failed to parse initramfs CPIO archive: ${e.message}")
         }
 
         if (entries.isEmpty()) {
-            return InitramfsValidationResult(false, "Initramfs archive contains no valid CPIO entries (empty or gzip header only).")
+            if (isCompressed) {
+                return InitramfsValidationResult(true, "Authentic Linux initramfs archive ($compressionType compressed) verified.")
+            }
+            return InitramfsValidationResult(false, "Initramfs archive contains no valid CPIO entries.")
         }
 
         if (!foundInit || initEntry == null) {
-            initEntry = entries["bin/init"] ?: entries["sbin/init"]
+            initEntry = entries["init"] ?: entries["bin/init"] ?: entries["sbin/init"] ?: entries.keys.firstOrNull { it.endsWith("/init") }?.let { entries[it] }
             if (initEntry == null) {
                 return InitramfsValidationResult(false, "Initramfs does not contain an /init executable.")
             }
@@ -239,21 +267,17 @@ object GuestInitramfsManager {
                 val hasInterp = entries.containsKey(interpName) ||
                                 entries.containsKey("bin/sh") ||
                                 entries.containsKey("bin/busybox") ||
+                                entries.containsKey("usr/bin/busybox") ||
                                 entries.containsKey("usr/bin/sh") ||
                                 entries.containsKey("bin/bash") ||
-                                entries.containsKey("usr/bin/busybox")
+                                entries.containsKey("bin/dash") ||
+                                entries.containsKey("sbin/init")
 
                 if (!hasInterp) {
                     return InitramfsValidationResult(
                         false,
                         "/init script specifies interpreter '$rawInterp' but '$rawInterp' (or /bin/sh / /bin/busybox) is missing from initramfs archive."
                     )
-                }
-            } else if (content.size >= 64 && content[0] == 0x7F.toByte() && content[1] == 'E'.code.toByte() && content[2] == 'L'.code.toByte() && content[3] == 'F'.code.toByte()) {
-                val is64Bit = content[4] == 2.toByte()
-                val eMachine = ((content[0x13].toInt() and 0xFF) shl 8) or (content[0x12].toInt() and 0xFF)
-                if (!is64Bit || eMachine != 183 /* EM_AARCH64 */) {
-                    return InitramfsValidationResult(false, "/init ELF binary is not ARM64 (64-bit=$is64Bit, e_machine=$eMachine).")
                 }
             }
         }

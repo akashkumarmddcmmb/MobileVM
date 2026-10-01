@@ -551,6 +551,39 @@ class VMViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun attachIsoToConfig(config: VMConfig, uri: android.net.Uri, onComplete: (VMConfig) -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                val context = getApplication<Application>()
+                val stream = context.contentResolver.openInputStream(uri)
+                if (stream != null) {
+                    val targetName = "iso_${config.name.replace("\\s+".toRegex(), "_").lowercase()}.iso"
+                    val result = com.example.vm.guest.os.ImportManager.importImageStream(
+                        context, stream, targetName, com.example.vm.guest.os.InstallationMode.MODE_B_ISO_INSTALLER
+                    )
+                    when (result) {
+                        is com.example.vm.guest.os.ImportResult.Success -> {
+                            val updated = config.copy(
+                                isoPath = result.importedFile.absolutePath,
+                                bootOrder = "CD_ROM"
+                            )
+                            saveFullConfig(updated)
+                            _errorMessage.value = "ISO media attached successfully: ${result.importedFile.name}"
+                            onComplete(updated)
+                        }
+                        is com.example.vm.guest.os.ImportResult.Failure -> {
+                            _errorMessage.value = result.reason
+                        }
+                    }
+                } else {
+                    _errorMessage.value = "Unable to open input stream for selected ISO URI."
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = "ISO attachment failed: ${e.localizedMessage}"
+            }
+        }
+    }
+
     fun markOsInstallationComplete(config: VMConfig) {
         viewModelScope.launch {
             val updated = com.example.vm.core.VMBootManager.markOsInstallationComplete(getApplication(), config)

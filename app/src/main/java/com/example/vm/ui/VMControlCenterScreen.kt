@@ -635,7 +635,15 @@ fun CpuSettingsTab(
             }
         }
 
-        Text("vCPU Cores", fontSize = 11.sp, color = Color.Gray)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("vCPU Cores:", fontSize = 11.sp, color = Color.Gray)
+            Text(
+                if (cpuCores > 0) "$cpuCores Cores" else "Not Set / Select CPU Cores",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (cpuCores > 0) Color(0xFF00E676) else Color(0xFFFF5252)
+            )
+        }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf(2, 4, 6, 8).forEach { cores ->
                 FilterChip(
@@ -647,13 +655,26 @@ fun CpuSettingsTab(
             }
         }
 
-        Button(
-            onClick = onApply,
-            enabled = !isRunning,
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-            modifier = Modifier.fillMaxWidth().testTag("btn_apply_cpu_settings")
-        ) {
-            Text("Apply CPU Settings", color = Color.Black, fontWeight = FontWeight.Bold)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = { onCpuCoresChange(0) },
+                enabled = !isRunning,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF5252)),
+                modifier = Modifier.weight(1f).testTag("btn_reset_cpu_cores")
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = "Reset", modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Reset Cores (Not Set)", fontSize = 11.sp)
+            }
+
+            Button(
+                onClick = onApply,
+                enabled = !isRunning,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                modifier = Modifier.weight(1.5f).testTag("btn_apply_cpu_settings")
+            ) {
+                Text("Apply CPU Settings", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+            }
         }
     }
 }
@@ -677,7 +698,15 @@ fun MemorySettingsTab(
             Text("${diagnostics.availableRamMb} MB", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00E676))
         }
 
-        Text("Configured RAM", fontSize = 11.sp, color = Color.Gray)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("Configured RAM:", fontSize = 11.sp, color = Color.Gray)
+            Text(
+                if (ramMb > 0) (if (ramMb >= 1024) "${ramMb / 1024} GB" else "$ramMb MB") else "Not Set / Select RAM",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (ramMb > 0) Color(0xFF00E676) else Color(0xFFFF5252)
+            )
+        }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             listOf(512, 1024, 2048, 3072, 4096, 6144, 7168, 8192).forEach { mb ->
                 FilterChip(
@@ -689,13 +718,26 @@ fun MemorySettingsTab(
             }
         }
 
-        Button(
-            onClick = onApply,
-            enabled = !isRunning,
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-            modifier = Modifier.fillMaxWidth().testTag("btn_apply_ram_settings")
-        ) {
-            Text("Apply RAM Settings", color = Color.Black, fontWeight = FontWeight.Bold)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = { onRamMbChange(0) },
+                enabled = !isRunning,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF5252)),
+                modifier = Modifier.weight(1f).testTag("btn_reset_ram_mb")
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = "Reset", modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Reset RAM (Not Set)", fontSize = 11.sp)
+            }
+
+            Button(
+                onClick = onApply,
+                enabled = !isRunning,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                modifier = Modifier.weight(1.5f).testTag("btn_apply_ram_settings")
+            ) {
+                Text("Apply RAM Settings", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+            }
         }
     }
 }
@@ -781,10 +823,31 @@ fun BootSettingsTab(
     val kernelInfo = remember(config.kernelImagePath) { com.example.vm.guest.kernel.GuestKernelManager.inspectKernel(config.kernelImagePath) }
     val initrdInfo = remember(config.initramfsPath) { com.example.vm.guest.initramfs.GuestInitramfsManager.inspectInitramfs(config.initramfsPath) }
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Boot Devices & Linux Provisioning", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+    var showBootManagerDialog by remember { mutableStateOf(false) }
 
-        Text("Primary Boot Order", fontSize = 11.sp, color = Color.Gray)
+    if (showBootManagerDialog) {
+        com.example.vm.ui.boot.WindowsBootManagerDialog(
+            config = config,
+            viewModel = viewModel,
+            vmState = vmState,
+            onDismiss = { showBootManagerDialog = false },
+            onStartVmWithBootTarget = { updatedConfig ->
+                viewModel.startVM(updatedConfig)
+            }
+        )
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Windows Boot Manager & EFI Options", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+
+        com.example.vm.ui.boot.WindowsBootManagerCard(
+            config = config,
+            viewModel = viewModel,
+            vmState = vmState,
+            onOpenBootManagerDialog = { showBootManagerDialog = true }
+        )
+
+        Text("Primary Boot Order Priority", fontSize = 11.sp, color = Color.Gray)
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
                 selected = bootOrder == "VIRTUAL_DISK",
