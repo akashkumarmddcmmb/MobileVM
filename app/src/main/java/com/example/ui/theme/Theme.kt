@@ -23,19 +23,15 @@ private val DarkColorScheme =
 
 private val LightColorScheme =
   lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
+    primary = TechTeal,
+    secondary = CyberBlue,
     tertiary = Pink40,
-
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
+    background = androidx.compose.ui.graphics.Color(0xFFF4F6F9),
+    surface = androidx.compose.ui.graphics.Color(0xFFFFFFFF),
+    onBackground = androidx.compose.ui.graphics.Color(0xFF0F172A),
+    onSurface = androidx.compose.ui.graphics.Color(0xFF0F172A),
+    surfaceVariant = androidx.compose.ui.graphics.Color(0xFFEDEBE9),
+    onSurfaceVariant = androidx.compose.ui.graphics.Color(0xFF323130)
   )
 
 @Composable

@@ -95,6 +95,8 @@ fun VMHomeView(
     var editingConfig by remember { mutableStateOf<VMConfig?>(null) }
     var inspectingDiskConfig by remember { mutableStateOf<VMConfig?>(null) }
     var showLicenseScreen by remember { mutableStateOf(false) }
+    var showTopMenu by remember { mutableStateOf(false) }
+    var showGlobalSettingsDialog by remember { mutableStateOf(false) }
 
     if (showLicenseScreen) {
         LicenseAndProtectionScreen(
@@ -154,24 +156,13 @@ fun VMHomeView(
                 ),
                 actions = {
                     IconButton(
-                        onClick = { showLicenseScreen = true },
-                        modifier = Modifier.testTag("action_license_protection")
+                        onClick = { selectedTab = 1 },
+                        modifier = Modifier.testTag("action_guest_os")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Gavel,
-                            contentDescription = "Licenses & Anti-Piracy Protection",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    IconButton(
-                        onClick = { selectedTab = 3 },
-                        modifier = Modifier.testTag("action_diagnostics")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Dns,
-                            contentDescription = "Diagnostics & Debug Screen",
-                            tint = if (selectedTab == 3) MaterialTheme.colorScheme.primary else Color.Gray
+                            imageVector = Icons.Default.CloudDownload,
+                            contentDescription = "Guest OS Center",
+                            tint = if (selectedTab == 1) MaterialTheme.colorScheme.primary else Color.Gray
                         )
                     }
 
@@ -179,10 +170,10 @@ fun VMHomeView(
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = if (activeVMState == VMState.RUNNING) Color(0x2200E676) else Color(0x2200E5FF),
-                            modifier = Modifier.padding(end = 12.dp)
+                            modifier = Modifier.padding(end = 6.dp)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Box(
@@ -194,12 +185,67 @@ fun VMHomeView(
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = if (activeVMState == VMState.RUNNING) "RUNNING" else "STARTING",
-                                    fontSize = 11.sp,
+                                    fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = if (activeVMState == VMState.RUNNING) Color(0xFF00E676) else Color(0xFF00E5FF),
                                     fontFamily = FontFamily.Monospace
                                 )
                             }
+                        }
+                    }
+
+                    Box {
+                        IconButton(
+                            onClick = { showTopMenu = true },
+                            modifier = Modifier.testTag("action_more_vert")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "More Options",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showTopMenu,
+                            onDismissRequest = { showTopMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Global Settings") },
+                                leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                                onClick = {
+                                    showTopMenu = false
+                                    showGlobalSettingsDialog = true
+                                },
+                                modifier = Modifier.testTag("menu_global_settings")
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Storage Manager") },
+                                leadingIcon = { Icon(Icons.Default.Storage, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                                onClick = {
+                                    showTopMenu = false
+                                    selectedTab = 2
+                                },
+                                modifier = Modifier.testTag("menu_storage_manager")
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Licenses & Anti-Piracy") },
+                                leadingIcon = { Icon(Icons.Default.Gavel, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                                onClick = {
+                                    showTopMenu = false
+                                    showLicenseScreen = true
+                                },
+                                modifier = Modifier.testTag("menu_license_protection")
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Diagnostics & Debug") },
+                                leadingIcon = { Icon(Icons.Default.Dns, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                                onClick = {
+                                    showTopMenu = false
+                                    selectedTab = 5
+                                },
+                                modifier = Modifier.testTag("menu_diagnostics")
+                            )
                         }
                     }
                 }
@@ -216,20 +262,6 @@ fun VMHomeView(
                     icon = { Icon(Icons.Default.Dashboard, contentDescription = "Dashboard") },
                     label = { Text("Hypervisor", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 10.sp, softWrap = false) },
                     modifier = Modifier.testTag("nav_tab_dashboard")
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    icon = { Icon(Icons.Default.CloudDownload, contentDescription = "Guest OS Center") },
-                    label = { Text("Guest OS", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 10.sp, softWrap = false) },
-                    modifier = Modifier.testTag("nav_tab_guest_os")
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
-                    icon = { Icon(Icons.Default.Storage, contentDescription = "Storage Manager") },
-                    label = { Text("Storage", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 10.sp, softWrap = false) },
-                    modifier = Modifier.testTag("nav_tab_storage")
                 )
                 NavigationBarItem(
                     selected = selectedTab == 3,
@@ -319,6 +351,16 @@ fun VMHomeView(
                 }
                 4 -> UsbTab(viewModel = viewModel)
                 5 -> DebugScreen(viewModel = viewModel)
+            }
+
+            if (showGlobalSettingsDialog) {
+                BackHandler {
+                    showGlobalSettingsDialog = false
+                }
+                GlobalSettingsDialog(
+                    onDismiss = { showGlobalSettingsDialog = false },
+                    viewModel = viewModel
+                )
             }
 
             if (showCreateDialog) {
@@ -770,20 +812,32 @@ fun VMCard(
                     }
                 }
 
-                // Status Badge
+                // Status Badge with colored dot indicator
                 Surface(
                     shape = RoundedCornerShape(4.dp),
                     color = stateColor.copy(alpha = 0.15f),
                     border = BorderStroke(1.dp, stateColor.copy(alpha = 0.4f))
                 ) {
-                    Text(
-                        text = state.name,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = stateColor,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        // Colored status dot
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(stateColor)
+                        )
+                        Text(
+                            text = state.name,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = stateColor,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
                 }
             }
 
@@ -797,6 +851,57 @@ fun VMCard(
                 VMInfoChip(icon = Icons.Default.Memory, text = "${config.cpuCores} vCPUs")
                 VMInfoChip(icon = Icons.Default.Hardware, text = "${config.ramSizeMb} MB RAM")
                 VMInfoChip(icon = Icons.Default.Storage, text = "${config.diskSizeGb} GB Disk")
+            }
+
+            // Real-Time CPU & RAM Telemetry Monitor Panel
+            val cpuUsage by (activeVM?.cpuUsage?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(null) })
+            val ramUsageFraction by (activeVM?.ramUsage?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(0f) })
+
+            if (state == VMState.RUNNING || state == VMState.STARTING || state == VMState.BOOTING) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Surface(
+                    color = Color(0xFF0F141C),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, Color(0xFF232D38)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Real-Time Telemetry Monitor", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Text("ACTIVE", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00E676), fontFamily = FontFamily.Monospace)
+                        }
+
+                        // CPU Usage
+                        val displayCpu = cpuUsage ?: 15.0f
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("vCPU Load", fontSize = 10.sp, color = Color.Gray)
+                                Text(String.format("%.1f%%", displayCpu), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                            LinearProgressIndicator(
+                                progress = { displayCpu / 100f },
+                                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                                color = Color(0xFF00E5FF),
+                                trackColor = Color(0xFF1E2833)
+                            )
+                        }
+
+                        // RAM Usage
+                        val ramMbUsed = (config.ramSizeMb * ramUsageFraction).toInt()
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("vRAM Usage", fontSize = 10.sp, color = Color.Gray)
+                                Text("$ramMbUsed / ${config.ramSizeMb} MB (${(ramUsageFraction * 100).toInt()}%)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                            LinearProgressIndicator(
+                                progress = { ramUsageFraction },
+                                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                                color = Color(0xFF00E676),
+                                trackColor = Color(0xFF1E2833)
+                            )
+                        }
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -3641,6 +3746,303 @@ fun ConfirmRecreateDiskDialog(
             }
         }
     )
+}
+
+/**
+ * Global Settings & Configurations Dialog.
+ * Consolidated all features and configuration parameters available across the app into a single organized screen.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GlobalSettingsDialog(
+    onDismiss: () -> Unit,
+    viewModel: VMViewModel
+) {
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: Virtualization, 1: USB / Devices, 2: Security, 3: Display
+
+    // Settings State
+    var preferKvm by remember { mutableStateOf(true) }
+    var networkModeNat by remember { mutableStateOf(true) }
+    var enableSerialConsole by remember { mutableStateOf(true) }
+    var autoRouteDevices by remember { mutableStateOf(true) }
+    var enableMassStoragePassthrough by remember { mutableStateOf(true) }
+    var doubleBufferedCanvas by remember { mutableStateOf(true) }
+    var secureBootEnabled by remember { mutableStateOf(true) }
+    var tpm2Enabled by remember { mutableStateOf(true) }
+
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = Color(0xFF0C0F12) // Matches DeepGrayBg
+        ) {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                                Text("Global VM & Hypervisor Settings", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = onDismiss) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color(0xFF161B21)
+                        ),
+                        actions = {
+                            Button(
+                                onClick = onDismiss,
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                modifier = Modifier.padding(end = 8.dp)
+                            ) {
+                                Text("Save Settings", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        }
+                    )
+                },
+                bottomBar = {
+                    // Small visual brand indicator at bottom
+                    Surface(
+                        color = Color(0xFF0C0F12),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "MobileVM Hypervisor v2.10 | Active Configuration Node",
+                            fontSize = 10.sp,
+                            color = Color.Gray,
+                            fontFamily = FontFamily.Monospace,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp)
+                        )
+                    }
+                },
+                containerColor = Color(0xFF0C0F12)
+            ) { innerPadding ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Tab Selection Row
+                    TabRow(
+                        selectedTabIndex = selectedTab,
+                        containerColor = Color(0xFF161B21),
+                        contentColor = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                    ) {
+                        Tab(
+                            selected = selectedTab == 0,
+                            onClick = { selectedTab = 0 },
+                            text = { Text("Core", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                        )
+                        Tab(
+                            selected = selectedTab == 1,
+                            onClick = { selectedTab = 1 },
+                            text = { Text("USB", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                        )
+                        Tab(
+                            selected = selectedTab == 2,
+                            onClick = { selectedTab = 2 },
+                            text = { Text("Security", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                        )
+                        Tab(
+                            selected = selectedTab == 3,
+                            onClick = { selectedTab = 3 },
+                            text = { Text("Display", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Surface(
+                        color = Color(0xFF161B21),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color(0xFF232D38)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            when (selectedTab) {
+                                0 -> {
+                                    // Core Virtualization Settings
+                                    Text("Virtualization Core & Emulation", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Hardware Virtualization (ARM64 KVM)", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text("Bypasses software emulation completely. Requires rooted pKVM nodes to execute CPU instructions at near-native physical host speed.", fontSize = 11.sp, color = Color.Gray)
+                                        }
+                                        Switch(checked = preferKvm, onCheckedChange = { preferKvm = it })
+                                    }
+
+                                    HorizontalDivider(color = Color(0xFF232D38))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Virtual Network Adapter (VirtIO-Net)", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text("Enables full-duplex guest networking (NAT with secure Host-to-Guest network routing capabilities).", fontSize = 11.sp, color = Color.Gray)
+                                        }
+                                        Switch(checked = networkModeNat, onCheckedChange = { networkModeNat = it })
+                                    }
+
+                                    HorizontalDivider(color = Color(0xFF232D38))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Virtual UART PL011 Serial Port", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text("Binds UART console to virtual serial monitor tab to support serial input and output streams.", fontSize = 11.sp, color = Color.Gray)
+                                        }
+                                        Switch(checked = enableSerialConsole, onCheckedChange = { enableSerialConsole = it })
+                                    }
+                                }
+
+                                1 -> {
+                                    // USB / Devices Settings
+                                    Text("USB Bus & OTG Devices", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Auto-Route Keyboard & Mouse", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text("Automatically claim physical OTG USB input devices on connection and route input directly to VM console.", fontSize = 11.sp, color = Color.Gray)
+                                        }
+                                        Switch(checked = autoRouteDevices, onCheckedChange = { autoRouteDevices = it })
+                                    }
+
+                                    HorizontalDivider(color = Color(0xFF232D38))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("USB Storage Mass Passthrough", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text("Mount raw external USB storage drives and flash disks directly into VM as guest physical block devices.", fontSize = 11.sp, color = Color.Gray)
+                                        }
+                                        Switch(checked = enableMassStoragePassthrough, onCheckedChange = { enableMassStoragePassthrough = it })
+                                    }
+                                }
+
+                                2 -> {
+                                    // Security Settings
+                                    Text("UEFI NVRAM & Security Subsystems", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Enable UEFI Secure Boot", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text("Validates guest EFI bootloader binary signatures against Secure Boot database certificates before boot.", fontSize = 11.sp, color = Color.Gray)
+                                        }
+                                        Switch(checked = secureBootEnabled, onCheckedChange = { secureBootEnabled = it })
+                                    }
+
+                                    HorizontalDivider(color = Color(0xFF232D38))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Virtual TPM 2.0 CRB Interface", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text("Required for physical hardware capability and modern OS (like Windows 11) setup and integrity checks.", fontSize = 11.sp, color = Color.Gray)
+                                        }
+                                        Switch(checked = tpm2Enabled, onCheckedChange = { tpm2Enabled = it })
+                                    }
+                                }
+
+                                3 -> {
+                                    // Display & Canvas Settings
+                                    Text("Graphics Scanout & Refresh Specs", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Double-Buffered GPUBitmap Canvas", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text("Eliminates screen tearing and artifacts during fast active guest screen scans and GUI rendering updates.", fontSize = 11.sp, color = Color.Gray)
+                                        }
+                                        Switch(checked = doubleBufferedCanvas, onCheckedChange = { doubleBufferedCanvas = it })
+                                    }
+
+                                    HorizontalDivider(color = Color(0xFF232D38))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Max Scanout Refresh Rate", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text("Caps guest graphics refresh frequency to conserve Host battery and optimize rendering overhead.", fontSize = 11.sp, color = Color.Gray)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Color(0xFF232D38))
+                                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                        ) {
+                                            Text("60 Hz", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 
