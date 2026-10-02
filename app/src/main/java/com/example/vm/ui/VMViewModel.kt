@@ -62,6 +62,7 @@ class VMViewModel(application: Application) : AndroidViewModel(application) {
     val clipboardManager = com.example.vm.sharing.VMClipboardManager(application)
 
     lateinit var storageManager: com.example.vm.storage.VMStorageManager
+    lateinit var snapshotManager: com.example.vm.snapshot.VmSnapshotManager
     lateinit var allDisks: StateFlow<List<com.example.vm.storage.VmDisk>>
     lateinit var allSnapshots: StateFlow<List<com.example.vm.storage.VmSnapshot>>
     lateinit var allBackups: StateFlow<List<com.example.vm.storage.VmBackup>>
@@ -77,6 +78,7 @@ class VMViewModel(application: Application) : AndroidViewModel(application) {
             database.storageOperationLogDao()
         )
         storageManager = com.example.vm.storage.VMStorageManager(application, repository, diskBackend)
+        snapshotManager = com.example.vm.snapshot.VmSnapshotManager(application, repository)
 
         vmConfigurations = repository.allConfigs.stateIn(
             scope = viewModelScope,
@@ -992,6 +994,41 @@ class VMViewModel(application: Application) : AndroidViewModel(application) {
             readSectors = diskReads,
             writtenSectors = diskWrites
         )
+    }
+
+    fun createSnapshot(vmEngine: com.example.vm.core.VMEngine, snapshotName: String, onComplete: (String?) -> Unit) {
+        viewModelScope.launch {
+            val result = snapshotManager.createFullVmSnapshot(vmEngine, snapshotName)
+            when (result) {
+                is com.example.vm.snapshot.SnapshotResult.Success -> {
+                    onComplete(null) // Success
+                }
+                is com.example.vm.snapshot.SnapshotResult.Error -> {
+                    onComplete(result.message) // Error
+                }
+            }
+        }
+    }
+
+    fun restoreSnapshot(vmEngine: com.example.vm.core.VMEngine, snapshot: com.example.vm.storage.VmSnapshot, onComplete: (String?) -> Unit) {
+        viewModelScope.launch {
+            val manifestFile = java.io.File(snapshot.snapshotPath)
+            val result = snapshotManager.restoreFullVmSnapshot(vmEngine, manifestFile)
+            when (result) {
+                is com.example.vm.snapshot.SnapshotResult.Success -> {
+                    onComplete(null) // Success
+                }
+                is com.example.vm.snapshot.SnapshotResult.Error -> {
+                    onComplete(result.message) // Error
+                }
+            }
+        }
+    }
+
+    fun deleteSnapshot(snapshot: com.example.vm.storage.VmSnapshot) {
+        viewModelScope.launch {
+            snapshotManager.deleteSnapshot(snapshot)
+        }
     }
 
     override fun onCleared() {

@@ -211,15 +211,6 @@ fun VMHomeView(
                             onDismissRequest = { showTopMenu = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Global Settings") },
-                                leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                                onClick = {
-                                    showTopMenu = false
-                                    showGlobalSettingsDialog = true
-                                },
-                                modifier = Modifier.testTag("menu_global_settings")
-                            )
-                            DropdownMenuItem(
                                 text = { Text("Storage Manager") },
                                 leadingIcon = { Icon(Icons.Default.Storage, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                                 onClick = {
@@ -246,6 +237,15 @@ fun VMHomeView(
                                 },
                                 modifier = Modifier.testTag("menu_diagnostics")
                             )
+                            DropdownMenuItem(
+                                text = { Text("Global Settings") },
+                                leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                                onClick = {
+                                    showTopMenu = false
+                                    showGlobalSettingsDialog = true
+                                },
+                                modifier = Modifier.testTag("menu_global_settings")
+                            )
                         }
                     }
                 }
@@ -254,35 +254,104 @@ fun VMHomeView(
         bottomBar = {
             NavigationBar(
                 containerColor = MaterialTheme.colorScheme.background,
-                tonalElevation = 8.dp
+                tonalElevation = 8.dp,
+                modifier = Modifier.height(84.dp)
             ) {
                 NavigationBarItem(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    icon = { Icon(Icons.Default.Dashboard, contentDescription = "Dashboard") },
-                    label = { Text("Hypervisor", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 10.sp, softWrap = false) },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.Dashboard,
+                            contentDescription = "Dashboard",
+                            modifier = Modifier.size(28.dp),
+                            tint = if (selectedTab == 0) MaterialTheme.colorScheme.primary else Color.Gray
+                        )
+                    },
+                    label = {
+                        Text(
+                            text = "Hypervisor",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            softWrap = false,
+                            color = if (selectedTab == 0) MaterialTheme.colorScheme.primary else Color.Gray
+                        )
+                    },
                     modifier = Modifier.testTag("nav_tab_dashboard")
                 )
                 NavigationBarItem(
                     selected = selectedTab == 3,
                     onClick = { selectedTab = 3 },
-                    icon = { Icon(Icons.Default.Terminal, contentDescription = "Terminal") },
-                    label = { Text("Console", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 10.sp, softWrap = false) },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.Terminal,
+                            contentDescription = "Terminal",
+                            modifier = Modifier.size(28.dp),
+                            tint = if (selectedTab == 3) MaterialTheme.colorScheme.primary else Color.Gray
+                        )
+                    },
+                    label = {
+                        Text(
+                            text = "Console",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            softWrap = false,
+                            color = if (selectedTab == 3) MaterialTheme.colorScheme.primary else Color.Gray
+                        )
+                    },
                     enabled = activeVM != null,
                     modifier = Modifier.testTag("nav_tab_console")
                 )
                 NavigationBarItem(
                     selected = selectedTab == 4,
                     onClick = { selectedTab = 4 },
-                    icon = { Icon(Icons.Default.Usb, contentDescription = "USB Devices") },
-                    label = { Text("OTG USB", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 10.sp, softWrap = false) },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.Usb,
+                            contentDescription = "USB Devices",
+                            modifier = Modifier.size(28.dp),
+                            tint = if (selectedTab == 4) MaterialTheme.colorScheme.primary else Color.Gray
+                        )
+                    },
+                    label = {
+                        Text(
+                            text = "OTG USB",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            softWrap = false,
+                            color = if (selectedTab == 4) MaterialTheme.colorScheme.primary else Color.Gray
+                        )
+                    },
                     modifier = Modifier.testTag("nav_tab_usb")
                 )
                 NavigationBarItem(
                     selected = selectedTab == 5,
                     onClick = { selectedTab = 5 },
-                    icon = { Icon(Icons.Default.BugReport, contentDescription = "Debug & Diagnostics") },
-                    label = { Text("Debug", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 10.sp, softWrap = false) },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.BugReport,
+                            contentDescription = "Debug & Diagnostics",
+                            modifier = Modifier.size(28.dp),
+                            tint = if (selectedTab == 5) MaterialTheme.colorScheme.primary else Color.Gray
+                        )
+                    },
+                    label = {
+                        Text(
+                            text = "Debug",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            softWrap = false,
+                            color = if (selectedTab == 5) MaterialTheme.colorScheme.primary else Color.Gray
+                        )
+                    },
                     modifier = Modifier.testTag("nav_tab_debug")
                 )
             }
@@ -490,6 +559,14 @@ fun DashboardTab(
             }
 
             item {
+                MultiOsBootManagerCard(
+                    vmList = vmList,
+                    activeVM = activeVM,
+                    onQuickBoot = { config -> viewModel.startVM(config) }
+                )
+            }
+
+            item {
                 Text(
                     text = "VIRTUAL MACHINES",
                     style = MaterialTheme.typography.titleSmall,
@@ -507,6 +584,7 @@ fun DashboardTab(
                     hostArch = viewModel.hostArchitecture,
                     isActive = isActive,
                     activeVM = if (isActive) activeVM else null,
+                    viewModel = viewModel,
                     onStart = { viewModel.startVM(config) },
                     onStop = { viewModel.stopVM() },
                     onPause = { viewModel.pauseVM() },
@@ -731,6 +809,7 @@ fun VMCard(
     hostArch: HostArchitecture,
     isActive: Boolean,
     activeVM: VMEngine?,
+    viewModel: VMViewModel,
     onStart: () -> Unit,
     onStop: () -> Unit,
     onPause: () -> Unit,
@@ -746,7 +825,7 @@ fun VMCard(
     val stateColor by animateColorAsState(
         targetValue = when (state) {
             VMState.RUNNING -> Color(0xFF00E676)
-            VMState.STARTING, VMState.BOOTING -> Color(0xFF00E5FF)
+            VMState.STARTING, VMState.BOOTING, VMState.FIRMWARE_READY, VMState.DEVICES_READY -> Color(0xFF00E5FF)
             VMState.KERNEL_STARTED, VMState.INIT_STARTED, VMState.ROOTFS_MOUNTED, VMState.USERSPACE_READY -> Color(0xFF00E5FF)
             VMState.VALIDATING, VMState.PROVISIONING, VMState.CONFIGURED, VMState.READY, VMState.CREATED -> Color(0xFF81D4FA)
             VMState.PAUSED -> Color(0xFFFFD54F)
@@ -1036,6 +1115,171 @@ fun VMCard(
                                             ) {
                                                 Text(entry.key, fontSize = 10.sp, color = Color.Gray, fontFamily = FontFamily.Monospace)
                                                 Text("0x${entry.value.toString(16).uppercase()}", fontSize = 10.sp, color = Color(0xFF00E676), fontFamily = FontFamily.Monospace)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Snapshots Section
+                    val snapshotsList by viewModel.allSnapshots.collectAsStateWithLifecycle()
+                    val vmSnapshots = remember(snapshotsList, config.id) {
+                        snapshotsList.filter { it.vmId == config.id }
+                    }
+                    var newSnapshotName by remember { mutableStateOf("") }
+                    var snapshotStatusMsg by remember { mutableStateOf<String?>(null) }
+                    var snapshotStatusIsError by remember { mutableStateOf(false) }
+
+                    HorizontalDivider(color = Color(0xFF1E2833), modifier = Modifier.padding(vertical = 8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CameraAlt, contentDescription = "Snapshots", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("VM Snapshots (Restore Points)", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("Capture the complete current state of CPU, RAM, registers, and storage to instantly revert to it later.", fontSize = 10.sp, color = Color.Gray)
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Take Snapshot Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = newSnapshotName,
+                            onValueChange = { newSnapshotName = it },
+                            placeholder = { Text("Snapshot name (e.g. Clean OS)", fontSize = 11.sp, color = Color.Gray) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f).height(46.dp),
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = Color.White),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = Color(0xFF232D38),
+                                focusedContainerColor = Color(0xFF0F141C),
+                                unfocusedContainerColor = Color(0xFF0F141C)
+                            )
+                        )
+
+                        Button(
+                            onClick = {
+                                if (newSnapshotName.isNotBlank() && activeVM != null && isActive) {
+                                    snapshotStatusMsg = "Saving live snapshot state..."
+                                    snapshotStatusIsError = false
+                                    viewModel.createSnapshot(activeVM!!, newSnapshotName) { errMsg ->
+                                        if (errMsg == null) {
+                                            snapshotStatusMsg = "Snapshot '$newSnapshotName' captured successfully!"
+                                            newSnapshotName = ""
+                                        } else {
+                                            snapshotStatusMsg = "Failed: $errMsg"
+                                            snapshotStatusIsError = true
+                                        }
+                                    }
+                                } else if (newSnapshotName.isBlank()) {
+                                    snapshotStatusMsg = "Please enter a valid snapshot name"
+                                    snapshotStatusIsError = true
+                                } else {
+                                    snapshotStatusMsg = "VM must be active (running/paused) to take a live snapshot"
+                                    snapshotStatusIsError = true
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            modifier = Modifier.height(40.dp)
+                        ) {
+                            Text("Take Snapshot", fontSize = 10.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    snapshotStatusMsg?.let { msg ->
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = msg,
+                            fontSize = 10.sp,
+                            color = if (snapshotStatusIsError) Color(0xFFFF5252) else Color(0xFF00E676),
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Snapshots List
+                    if (vmSnapshots.isEmpty()) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFF0F141C),
+                            border = BorderStroke(1.dp, Color(0xFF1E2833)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Box(modifier = Modifier.padding(12.dp), contentAlignment = Alignment.Center) {
+                                Text("No snapshots found for this VM. Take a snapshot to create a restore point.", fontSize = 10.sp, color = Color.Gray, textAlign = TextAlign.Center)
+                            }
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            vmSnapshots.forEach { snapshot ->
+                                val dateStr = java.text.SimpleDateFormat("dd MMM yyyy, HH:mm", java.util.Locale.getDefault()).format(java.util.Date(snapshot.timestamp))
+                                val sizeMb = String.format("%.2f MB", snapshot.sizeBytes.toFloat() / (1024f * 1024f))
+
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFF0F141C),
+                                    border = BorderStroke(1.dp, Color(0xFF1E2833)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(snapshot.snapshotName, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                            Text("Created: $dateStr | Size: $sizeMb", fontSize = 9.sp, color = Color.Gray)
+                                        }
+
+                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            // Revert / Restore button
+                                            TextButton(
+                                                onClick = {
+                                                    if (activeVM != null && isActive) {
+                                                        snapshotStatusMsg = "Restoring CPU, registers, and storage state..."
+                                                        snapshotStatusIsError = false
+                                                        viewModel.restoreSnapshot(activeVM!!, snapshot) { errMsg ->
+                                                            if (errMsg == null) {
+                                                                snapshotStatusMsg = "Restored successfully to snapshot '${snapshot.snapshotName}'!"
+                                                            } else {
+                                                                snapshotStatusMsg = "Restore failed: $errMsg"
+                                                                snapshotStatusIsError = true
+                                                            }
+                                                        }
+                                                    } else {
+                                                        snapshotStatusMsg = "VM must be active (running/paused) to revert state"
+                                                        snapshotStatusIsError = true
+                                                    }
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                                modifier = Modifier.height(28.dp)
+                                            ) {
+                                                Icon(Icons.Default.Restore, contentDescription = "Revert", modifier = Modifier.size(12.dp), tint = Color(0xFF00E676))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Revert", fontSize = 10.sp, color = Color(0xFF00E676), fontWeight = FontWeight.Bold)
+                                            }
+
+                                            // Delete button
+                                            IconButton(
+                                                onClick = { viewModel.deleteSnapshot(snapshot) },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(Icons.Default.Delete, contentDescription = "Delete", modifier = Modifier.size(14.dp), tint = Color(0xFFFF5252))
                                             }
                                         }
                                     }
@@ -1713,69 +1957,36 @@ fun UsbTab(viewModel: VMViewModel) {
                 .fillMaxWidth()
                 .border(1.dp, Color(0xFF232D38), RoundedCornerShape(12.dp))
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(modifier = Modifier.padding(12.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "USB MANAGER (GENERIC ARCHITECTURE)",
+                            text = "USB MANAGER (OTG BUS)",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
                             fontFamily = FontFamily.Monospace
                         )
+                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Keyboard • Mouse • HID • Storage • Serial • Future Devices",
-                            fontSize = 10.sp,
-                            color = Color.LightGray,
+                            text = "Active Target VM: ${activeVM?.config?.name ?: "None (Stopped)"}",
+                            fontSize = 11.sp,
+                            color = if (activeVM != null) Color(0xFF00E676) else Color.Gray,
                             fontFamily = FontFamily.Monospace
                         )
                     }
 
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = Color(0xFF00E5FF).copy(alpha = 0.15f),
-                        border = BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.4f))
-                    ) {
-                        Text(
-                            text = "MODULAR BUS",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF00E5FF),
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Unified device lifecycle across all peripheral classes: Attach • Detach • Permission • Identification • Release • Error Handling. Android private storage is strictly isolated.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.LightGray
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Active Target VM: ${activeVM?.config?.name ?: "None (Stopped)"}",
-                        fontSize = 11.sp,
-                        color = if (activeVM != null) Color(0xFF00E676) else Color.Gray,
-                        fontFamily = FontFamily.Monospace
-                    )
                     Button(
                         onClick = { viewModel.refreshUsbDevices() },
-                        modifier = Modifier.height(36.dp).testTag("btn_rescan_usb")
+                        modifier = Modifier.height(34.dp).testTag("btn_rescan_usb")
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Rescan", modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Rescan Bus", fontSize = 11.sp)
+                        Icon(Icons.Default.Refresh, contentDescription = "Rescan", modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Rescan", fontSize = 11.sp)
                     }
                 }
             }
@@ -2727,6 +2938,7 @@ fun VMConfigDialog(
     var kernelCmdline by remember { mutableStateOf(config?.kernelCmdline ?: "console=ttyAMA0,115200 root=/dev/vda1 rw init=/init earlycon=pl011,0x09000000") }
     var consoleDevice by remember { mutableStateOf(config?.consoleDevice ?: "ttyAMA0 (PL011 UART)") }
     var showAdvancedBoot by remember { mutableStateOf(false) }
+    var showEfiAssistant by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -3029,6 +3241,75 @@ fun VMConfigDialog(
                         steps = 23,
                         modifier = Modifier.testTag("slider_disk")
                     )
+                }
+
+                item {
+                    TextButton(
+                        onClick = { showEfiAssistant = !showEfiAssistant },
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (showEfiAssistant) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = "Expand EFI Assistant",
+                            tint = Color(0xFFFFB300),
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (showEfiAssistant) "Hide UEFI Boot Manager & EFI Assistant" else "UEFI Boot Manager & EFI Assistant (Windows / Linux Boot)",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFFB300)
+                        )
+                    }
+                }
+
+                if (showEfiAssistant) {
+                    item {
+                        Surface(
+                            color = Color(0xFF101418),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, Color(0xFF332A15)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.DeveloperBoard, contentDescription = null, tint = Color(0xFFFFB300), modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("UEFI Boot Manager Integration (Windows & Linux)", fontSize = 12.sp, color = Color(0xFFFFB300), fontWeight = FontWeight.Bold)
+                                }
+                                Text("To ensure successful booting of Windows or Linux operating systems, the virtual machine's UEFI firmware expects a FAT32-formatted EFI System Partition (ESP) on a GPT partition table containing these boot files:", fontSize = 10.sp, color = Color.LightGray)
+
+                                Surface(
+                                    color = Color(0xFF070A0D),
+                                    shape = RoundedCornerShape(6.dp),
+                                    border = BorderStroke(1.dp, Color(0xFF1E2833)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        // Windows Boot path
+                                        Column {
+                                            Text("🪟 Windows Boot Manager Paths (UEFI GPT):", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                            Text("  • Boot Loader Location: \\EFI\\Microsoft\\Boot\\bootmgfw.efi", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = Color(0xFF00E5FF))
+                                            Text("  • Configuration Database (BCD): \\EFI\\Microsoft\\Boot\\BCD", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = Color(0xFF00E5FF))
+                                            Text("  • Kernel Passing Component: launches winload.efi to load Windows Kernel.", fontSize = 9.sp, color = Color.Gray)
+                                        }
+
+                                        HorizontalDivider(color = Color(0xFF1E2833))
+
+                                        // Linux Boot path
+                                        Column {
+                                            Text("🐧 Linux EFI (GRUB / Direct Boot) Paths:", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                            Text("  • GRUB UEFI Boot Binary: \\EFI\\BOOT\\BOOTAA64.EFI (ARM64)", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = Color(0xFF00E676))
+                                            Text("  • Grub Configuration File: \\EFI\\ubuntu\\grub.cfg (reads grub.cfg to load Linux Kernel)", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = Color(0xFF00E676))
+                                        }
+                                    }
+                                }
+
+                                Text("💡 Pro-Tip (Dual Booting): Windows Boot Manager reads its BCD database to display the OS list or load Winload. If installing Linux alongside, configure GRUB to chainload Windows Boot Manager or let UEFI Boot manager control boot order via NVRAM settings.", fontSize = 9.sp, color = Color(0xFFCE93D8), lineHeight = 12.sp)
+                            }
+                        }
+                    }
                 }
 
                 item {
@@ -4033,6 +4314,190 @@ fun GlobalSettingsDialog(
                                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                                         ) {
                                             Text("60 Hz", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Multi-OS Boot Manager Card
+ * Displays all installed configurations and lets users manage boot priority, set default OS, and trigger Quick Boot!
+ */
+@Composable
+fun MultiOsBootManagerCard(
+    vmList: List<VMConfig>,
+    activeVM: VMEngine?,
+    onQuickBoot: (VMConfig) -> Unit
+) {
+    if (vmList.isEmpty()) return
+
+    var defaultBootId by remember { mutableLongStateOf(vmList.firstOrNull()?.id ?: 0L) }
+    var bootListState by remember(vmList) { mutableStateOf(vmList) }
+    var showPriorityManager by remember { mutableStateOf(false) }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color(0xFF232D38), RoundedCornerShape(12.dp))
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.DeveloperBoard, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                    Text(
+                        text = "🎯 MULTI-OS UEFI BOOT MANAGER",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+
+                TextButton(
+                    onClick = { showPriorityManager = !showPriorityManager },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Text(
+                        text = if (showPriorityManager) "Done" else "Configure Order",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            Text(
+                text = "Manage multiple installed operating system distributions, re-arrange UEFI boot disk priority order, and trigger instant Quick Boot execution.",
+                fontSize = 10.sp,
+                color = Color.Gray,
+                lineHeight = 13.sp
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                bootListState.forEachIndexed { index, config ->
+                    val isDefault = config.id == defaultBootId
+                    val isRunning = activeVM?.config?.id == config.id
+
+                    Surface(
+                        color = Color(0xFF101418),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, if (isRunning) Color(0xFF00E676) else if (isDefault) MaterialTheme.colorScheme.primary else Color(0xFF232D38)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Icon(
+                                    imageVector = if (config.guestOsType.contains("Windows", ignoreCase = true)) Icons.Default.LaptopMac else Icons.Default.Terminal,
+                                    contentDescription = null,
+                                    tint = if (isRunning) Color(0xFF00E676) else if (isDefault) MaterialTheme.colorScheme.primary else Color.LightGray,
+                                    modifier = Modifier.size(20.dp)
+                                )
+
+                                Column {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text(config.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                        if (isRunning) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(Color(0x2200E676))
+                                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                                            ) {
+                                                Text("ACTIVE", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00E676), fontFamily = FontFamily.Monospace)
+                                            }
+                                        } else if (isDefault) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                                            ) {
+                                                Text("DEFAULT BOOT", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontFamily = FontFamily.Monospace)
+                                            }
+                                        }
+                                    }
+                                    Text("${config.guestOsType} | ${config.cpuCores} Cores | ${config.ramSizeMb} MB RAM", fontSize = 10.sp, color = Color.Gray)
+                                }
+                            }
+
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                if (showPriorityManager) {
+                                    // Move Up Button
+                                    IconButton(
+                                        onClick = {
+                                            if (index > 0) {
+                                                val newList = bootListState.toMutableList()
+                                                val temp = newList[index]
+                                                newList[index] = newList[index - 1]
+                                                newList[index - 1] = temp
+                                                bootListState = newList
+                                            }
+                                        },
+                                        enabled = index > 0,
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up", modifier = Modifier.size(16.dp), tint = if (index > 0) Color.White else Color.DarkGray)
+                                    }
+
+                                    // Move Down Button
+                                    IconButton(
+                                        onClick = {
+                                            if (index < bootListState.size - 1) {
+                                                val newList = bootListState.toMutableList()
+                                                val temp = newList[index]
+                                                newList[index] = newList[index + 1]
+                                                newList[index + 1] = temp
+                                                bootListState = newList
+                                            }
+                                        },
+                                        enabled = index < bootListState.size - 1,
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(Icons.Default.ArrowDownward, contentDescription = "Move Down", modifier = Modifier.size(16.dp), tint = if (index < bootListState.size - 1) Color.White else Color.DarkGray)
+                                    }
+                                } else {
+                                    // Make Default Button
+                                    if (!isDefault) {
+                                        TextButton(
+                                            onClick = { defaultBootId = config.id },
+                                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                            modifier = Modifier.height(28.dp)
+                                        ) {
+                                            Text("Set Default", fontSize = 10.sp, color = Color.Gray)
+                                        }
+                                    }
+
+                                    // Quick Boot Button
+                                    if (!isRunning && activeVM == null) {
+                                        Button(
+                                            onClick = { onQuickBoot(config) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = if (isDefault) MaterialTheme.colorScheme.primary else Color(0xFF232D38)),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                            modifier = Modifier.height(30.dp)
+                                        ) {
+                                            Icon(Icons.Default.FlashOn, contentDescription = "Quick Boot", modifier = Modifier.size(12.dp), tint = if (isDefault) Color.Black else Color.White)
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Quick Boot", fontSize = 10.sp, color = if (isDefault) Color.Black else Color.White, fontWeight = FontWeight.Bold)
                                         }
                                     }
                                 }

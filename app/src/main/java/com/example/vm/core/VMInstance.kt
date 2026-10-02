@@ -384,6 +384,8 @@ class VMInstance(
             10 -> VMState.SHUTTING_DOWN
             11 -> VMState.REBOOTING
             12 -> VMState.CRASH_DETECTED
+            13 -> VMState.FIRMWARE_READY
+            14 -> VMState.DEVICES_READY
             else -> VMState.ERROR
         }
     }

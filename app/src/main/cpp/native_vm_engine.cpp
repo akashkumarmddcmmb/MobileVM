@@ -215,8 +215,30 @@ int NativeVMEngine::stepCycles(int maxCycles) {
     }
 
     uint64_t executed = cpu->runCycles(memory, devices, static_cast<uint64_t>(maxCycles));
-    if (executed > 0 && state.load() == VMNativeState::STARTING) {
-        state = VMNativeState::RUNNING;
+    if (executed > 0) {
+        VMNativeState cur = state.load();
+        static uint64_t accumulatedCycles = 0;
+
+        if (cur == VMNativeState::STARTING) {
+            state = VMNativeState::FIRMWARE_READY;
+            accumulatedCycles = executed;
+        } else if (cur == VMNativeState::FIRMWARE_READY) {
+            accumulatedCycles += executed;
+            if (accumulatedCycles > 200) {
+                state = VMNativeState::DEVICES_READY;
+            }
+        } else if (cur == VMNativeState::DEVICES_READY) {
+            accumulatedCycles += executed;
+            if (accumulatedCycles > 500) {
+                state = VMNativeState::BOOTING;
+            }
+        } else if (cur == VMNativeState::BOOTING) {
+            accumulatedCycles += executed;
+            if (accumulatedCycles > 1000) {
+                state = VMNativeState::RUNNING;
+                accumulatedCycles = 0;
+            }
+        }
     }
 
     // Check CPU & Device state transitions

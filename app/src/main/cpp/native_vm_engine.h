@@ -27,7 +27,9 @@ enum class VMNativeState {
     BOOTING = 9,
     SHUTTING_DOWN = 10,
     REBOOTING = 11,
-    CRASH_DETECTED = 12
+    CRASH_DETECTED = 12,
+    FIRMWARE_READY = 13,
+    DEVICES_READY = 14
 };
 
 class NativeVMEngine {
