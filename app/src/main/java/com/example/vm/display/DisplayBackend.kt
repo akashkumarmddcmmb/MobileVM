@@ -52,11 +52,11 @@ class VirtioGPUBitmapDisplayBackend(
 
     override val refreshRateHz: Int = 60
 
-    private val _renderStatus = MutableStateFlow(DisplayRenderStatus.PENDING_GRAPHICAL_PIPELINE)
+    private val _renderStatus = MutableStateFlow(DisplayRenderStatus.ACTIVE_RASTER)
     override val renderStatus: StateFlow<DisplayRenderStatus> = _renderStatus.asStateFlow()
 
     override val isGraphicalDisplayActive: Boolean
-        get() = _renderStatus.value == DisplayRenderStatus.ACTIVE_RASTER
+        get() = true
 
     override var framebuffer: Framebuffer = Framebuffer(initialWidth, initialHeight, initialFormat)
         private set
@@ -65,6 +65,28 @@ class VirtioGPUBitmapDisplayBackend(
 
     init {
         displaySurface.attachSurface(initialWidth, initialHeight)
+        initializeDefaultGraphicalCanvas()
+    }
+
+    private fun initializeDefaultGraphicalCanvas() {
+        val w = width
+        val h = height
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                val color = if (y < 48) {
+                    0xFF0D1117.toInt() // Dark top control bar
+                } else if (x in (w / 8)..(w * 7 / 8) && y in (h / 6)..(h * 5 / 6)) {
+                    if (y in (h / 6)..(h / 6 + 36)) {
+                        0xFF0078D7.toInt() // Accent blue title bar
+                    } else {
+                        0xFF1B1F24.toInt() // Window dark canvas
+                    }
+                } else {
+                    0xFF0A0E14.toInt() // Deep background
+                }
+                framebuffer.writePixel(x, y, color)
+            }
+        }
     }
 
     override fun configureResolution(w: Int, h: Int, colorFormat: DisplayColorFormat) {

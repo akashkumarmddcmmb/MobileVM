@@ -47,6 +47,15 @@ class VMRuntimeManager(
 ) {
     companion object {
         private const val TAG = "VMRuntimeManager"
+
+        @Volatile
+        private var instance: VMRuntimeManager? = null
+
+        fun getInstance(context: Context): VMRuntimeManager {
+            return instance ?: synchronized(this) {
+                instance ?: VMRuntimeManager(context.applicationContext).also { instance = it }
+            }
+        }
     }
 
     private val lifecycleLock = Any()
@@ -76,6 +85,8 @@ class VMRuntimeManager(
     private var activeEngine: VMEngine? = null
     private var activeInstance: VMInstance? = null
     private var nativeVmHandle: Long = 0L
+
+    fun getActiveEngine(): VMEngine? = activeEngine
 
     var displayBackend: DisplayBackend = VirtioGPUBitmapDisplayBackend()
         private set

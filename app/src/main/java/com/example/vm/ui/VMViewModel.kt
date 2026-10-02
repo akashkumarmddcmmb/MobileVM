@@ -405,6 +405,22 @@ class VMViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun createOrSaveVM(config: VMConfig, onSaved: ((VMConfig) -> Unit)? = null) {
+        viewModelScope.launch {
+            if (config.id == 0L) {
+                if (config.diskImagePath.isNotBlank() && !File(config.diskImagePath).exists()) {
+                    diskBackend.createDiskImage(config.diskImagePath, config.diskSizeGb, sparse = true)
+                }
+                val newId = repository.insertConfig(config)
+                val savedConfig = config.copy(id = newId)
+                onSaved?.invoke(savedConfig)
+            } else {
+                repository.updateConfig(config)
+                onSaved?.invoke(config)
+            }
+        }
+    }
+
     fun createDiskFileExplicitly(config: VMConfig) {
         viewModelScope.launch {
             val success = diskBackend.createDiskImage(config.diskImagePath, config.diskSizeGb, sparse = true)
@@ -855,6 +871,17 @@ class VMViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } finally {
                 vmOperationMutex.unlock()
+            }
+        }
+    }
+
+    fun toggleNetworkAdapter(enabled: Boolean) {
+        val active = _activeVM.value ?: return
+        active.setNetworkEnabled(enabled)
+        viewModelScope.launch {
+            val updated = active.config.copy(networkEnabled = enabled, networkMode = if (enabled) "NAT" else "OFF")
+            if (updated.id != 0L) {
+                repository.updateConfig(updated)
             }
         }
     }

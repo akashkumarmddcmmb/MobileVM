@@ -75,6 +75,7 @@ import com.example.vm.usb.UsbStorageDeviceInfo
 import com.example.vm.usb.UsbStorageType
 import com.example.vm.usb.UsbStorageAccessMode
 import com.example.vm.usb.UsbStorageConnectionState
+import androidx.compose.ui.draw.scale
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -92,11 +93,31 @@ fun VMHomeView(
 ) {
     var selectedTab by remember { mutableStateOf(0) }
     var showCreateDialog by remember { mutableStateOf(false) }
+    var showCustomHardwareConfig by remember { mutableStateOf(false) }
+    var customHardwareConfigTarget by remember { mutableStateOf<VMConfig?>(null) }
     var editingConfig by remember { mutableStateOf<VMConfig?>(null) }
     var inspectingDiskConfig by remember { mutableStateOf<VMConfig?>(null) }
     var showLicenseScreen by remember { mutableStateOf(false) }
     var showTopMenu by remember { mutableStateOf(false) }
     var showGlobalSettingsDialog by remember { mutableStateOf(false) }
+
+    if (showCustomHardwareConfig) {
+        VMCustomHardwareConfigScreen(
+            viewModel = viewModel,
+            initialConfig = customHardwareConfigTarget,
+            onDismiss = {
+                showCustomHardwareConfig = false
+                customHardwareConfigTarget = null
+            },
+            onLaunchVm = { savedConfig ->
+                showCustomHardwareConfig = false
+                customHardwareConfigTarget = null
+                viewModel.startVM(savedConfig)
+                selectedTab = 3 // Navigate to console
+            }
+        )
+        return
+    }
 
     if (showLicenseScreen) {
         LicenseAndProtectionScreen(
@@ -210,6 +231,16 @@ fun VMHomeView(
                             expanded = showTopMenu,
                             onDismissRequest = { showTopMenu = false }
                         ) {
+                            DropdownMenuItem(
+                                text = { Text("Custom Hardware Configurator") },
+                                leadingIcon = { Icon(Icons.Default.Tune, contentDescription = null, tint = Color(0xFF00E5FF)) },
+                                onClick = {
+                                    showTopMenu = false
+                                    customHardwareConfigTarget = null
+                                    showCustomHardwareConfig = true
+                                },
+                                modifier = Modifier.testTag("menu_custom_hardware_config")
+                            )
                             DropdownMenuItem(
                                 text = { Text("Storage Manager") },
                                 leadingIcon = { Icon(Icons.Default.Storage, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
@@ -397,14 +428,17 @@ fun VMHomeView(
                     },
                     onInspectDisk = { config ->
                         inspectingDiskConfig = config
-                    }
+                    },
+                    onOpenConsole = { selectedTab = 3 }
                 )
                 1 -> OSManagerScreen(
                     downloadManager = viewModel.downloadManager,
                     onBack = { selectedTab = 0 },
                     onConfigured = { config ->
-                        viewModel.startVM(config)
-                        selectedTab = 0
+                        viewModel.createOrSaveVM(config) { savedConfig ->
+                            viewModel.startVM(savedConfig)
+                            selectedTab = 3
+                        }
                     }
                 )
                 2 -> VMStorageManagerScreen(
@@ -493,7 +527,8 @@ fun DashboardTab(
     vmList: List<VMConfig>,
     activeVM: VMEngine?,
     onEditConfig: (VMConfig) -> Unit,
-    onInspectDisk: (VMConfig) -> Unit
+    onInspectDisk: (VMConfig) -> Unit,
+    onOpenConsole: () -> Unit = {}
 ) {
     var vmToDelete by remember { mutableStateOf<VMConfig?>(null) }
     var vmDiskToAllocate by remember { mutableStateOf<VMConfig?>(null) }
@@ -508,6 +543,7 @@ fun DashboardTab(
             onDismiss = { bootManagerVmConfig = null },
             onStartVmWithBootTarget = { updatedConfig ->
                 viewModel.startVM(updatedConfig)
+                onOpenConsole()
             }
         )
     }
@@ -537,7 +573,15 @@ fun DashboardTab(
     }
 
     if (vmList.isEmpty()) {
-        EmptyDashboardState()
+        EmptyDashboardState(
+            viewModel = viewModel,
+            onLaunchVM = { config ->
+                viewModel.createOrSaveVM(config) { saved ->
+                    viewModel.startVM(saved)
+                    onOpenConsole()
+                }
+            }
+        )
     } else {
         LazyColumn(
             modifier = Modifier
@@ -548,6 +592,22 @@ fun DashboardTab(
             item {
                 Spacer(modifier = Modifier.height(8.dp))
                 TelemetryBanner(activeVM = activeVM, hostArch = viewModel.hostArchitecture)
+            }
+
+            item {
+                com.example.vm.ui.dashboard.VMRealTimeMonitoringPanel(activeVM = activeVM)
+            }
+
+            item {
+                com.example.vm.ui.dashboard.VMConfigDashboardCard(
+                    viewModel = viewModel,
+                    onLaunchVM = { config ->
+                        viewModel.createOrSaveVM(config) { saved ->
+                            viewModel.startVM(saved)
+                            onOpenConsole()
+                        }
+                    }
+                )
             }
 
             item {
@@ -1397,34 +1457,49 @@ fun VMInfoChip(icon: ImageVector, text: String) {
 }
 
 @Composable
-fun EmptyDashboardState() {
-    Column(
+fun EmptyDashboardState(
+    viewModel: VMViewModel? = null,
+    onLaunchVM: ((VMConfig) -> Unit)? = null
+) {
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(32.dp),
+            .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Icon(
-            imageVector = Icons.Default.Dns,
-            contentDescription = "Server Tower",
-            tint = Color.Gray,
-            modifier = Modifier.size(72.dp)
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = "No Virtual Sandboxes found",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            color = Color.White
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = "Create a new VM configuration to allocate ARM64 vCPU cores, virtual memory blocks, and persistent virtual disk sectors on your Android host.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = Color.Gray,
-            textAlign = TextAlign.Center
-        )
+        item {
+            Spacer(modifier = Modifier.height(8.dp))
+            Icon(
+                imageVector = Icons.Default.Dns,
+                contentDescription = "Server Tower",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(56.dp)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Virtual Machine Control Center",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Allocate vCPU cores, RAM memory, and virtual storage below to create a new instance.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray,
+                textAlign = TextAlign.Center
+            )
+        }
+
+        if (viewModel != null && onLaunchVM != null) {
+            item {
+                com.example.vm.ui.dashboard.VMConfigDashboardCard(
+                    viewModel = viewModel,
+                    onLaunchVM = onLaunchVM
+                )
+            }
+        }
     }
 }
 
@@ -1525,6 +1600,43 @@ fun ConsoleTab(viewModel: VMViewModel, engine: VMEngine) {
                         Text("Clear", fontSize = 10.sp, color = Color.Gray)
                     }
 
+                    // Live Network Adapter Toggle Switch
+                    val isNetUp by engine.isNetworkEnabled.collectAsStateWithLifecycle()
+                    Surface(
+                        color = Color(0xFF141D26),
+                        shape = RoundedCornerShape(4.dp),
+                        border = BorderStroke(1.dp, Color(0xFF222F3E)),
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isNetUp) Icons.Default.Wifi else Icons.Default.WifiOff,
+                                contentDescription = "Virtual Network Adapter",
+                                tint = if (isNetUp) Color(0xFF00E676) else Color.Gray,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Text(
+                                text = if (isNetUp) "NET" else "OFF",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isNetUp) Color(0xFF00E676) else Color.Gray,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Switch(
+                                checked = isNetUp,
+                                onCheckedChange = { enabled ->
+                                    viewModel.toggleNetworkAdapter(enabled)
+                                },
+                                modifier = Modifier.scale(0.55f).testTag("switch_console_network_toggle")
+                            )
+                        }
+                    }
+
                     if (!isConnected || state != VMState.RUNNING) {
                         Button(
                             onClick = { engine.serialConsole.reconnect() },
@@ -1544,8 +1656,9 @@ fun ConsoleTab(viewModel: VMViewModel, engine: VMEngine) {
         // 2. Real Virtual Display & Framebuffer Subsystem
         val inputEventsCount by engine.inputBackend.virtualInputDevice.eventsDispatched.collectAsStateWithLifecycle()
         val displayStatus by engine.displayDevice.renderStatus.collectAsStateWithLifecycle()
+        var isDisplayExpanded by remember { mutableStateOf(false) }
 
-        if (state == VMState.RUNNING || state == VMState.STARTING) {
+        if (state.isActive()) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1577,34 +1690,48 @@ fun ConsoleTab(viewModel: VMViewModel, engine: VMEngine) {
                             )
                         }
 
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = when (displayStatus) {
-                                com.example.vm.display.DisplayRenderStatus.ACTIVE_RASTER -> Color(0xFF00E676).copy(alpha = 0.15f)
-                                com.example.vm.display.DisplayRenderStatus.PENDING_GRAPHICAL_PIPELINE -> Color(0xFFFFB300).copy(alpha = 0.15f)
-                                else -> Color.Gray.copy(alpha = 0.15f)
-                            },
-                            border = BorderStroke(
-                                1.dp,
-                                when (displayStatus) {
-                                    com.example.vm.display.DisplayRenderStatus.ACTIVE_RASTER -> Color(0xFF00E676).copy(alpha = 0.5f)
-                                    com.example.vm.display.DisplayRenderStatus.PENDING_GRAPHICAL_PIPELINE -> Color(0xFFFFB300).copy(alpha = 0.5f)
-                                    else -> Color.Gray.copy(alpha = 0.5f)
-                                }
-                            )
-                        ) {
-                            Text(
-                                text = displayStatus.label.uppercase(),
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
                                 color = when (displayStatus) {
-                                    com.example.vm.display.DisplayRenderStatus.ACTIVE_RASTER -> Color(0xFF00E676)
-                                    com.example.vm.display.DisplayRenderStatus.PENDING_GRAPHICAL_PIPELINE -> Color(0xFFFFB300)
-                                    else -> Color.Gray
+                                    com.example.vm.display.DisplayRenderStatus.ACTIVE_RASTER -> Color(0xFF00E676).copy(alpha = 0.15f)
+                                    com.example.vm.display.DisplayRenderStatus.PENDING_GRAPHICAL_PIPELINE -> Color(0xFFFFB300).copy(alpha = 0.15f)
+                                    else -> Color.Gray.copy(alpha = 0.15f)
                                 },
-                                fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
+                                border = BorderStroke(
+                                    1.dp,
+                                    when (displayStatus) {
+                                        com.example.vm.display.DisplayRenderStatus.ACTIVE_RASTER -> Color(0xFF00E676).copy(alpha = 0.5f)
+                                        com.example.vm.display.DisplayRenderStatus.PENDING_GRAPHICAL_PIPELINE -> Color(0xFFFFB300).copy(alpha = 0.5f)
+                                        else -> Color.Gray.copy(alpha = 0.5f)
+                                    }
+                                )
+                            ) {
+                                Text(
+                                    text = displayStatus.label.uppercase(),
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = when (displayStatus) {
+                                        com.example.vm.display.DisplayRenderStatus.ACTIVE_RASTER -> Color(0xFF00E676)
+                                        com.example.vm.display.DisplayRenderStatus.PENDING_GRAPHICAL_PIPELINE -> Color(0xFFFFB300)
+                                        else -> Color.Gray
+                                    },
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { isDisplayExpanded = !isDisplayExpanded },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isDisplayExpanded) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                    contentDescription = "Toggle Screen Size",
+                                    tint = Color.LightGray,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
                     }
 
@@ -1614,7 +1741,7 @@ fun ConsoleTab(viewModel: VMViewModel, engine: VMEngine) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(110.dp)
+                            .height(if (isDisplayExpanded) 250.dp else 140.dp)
                             .background(Color.Black, RoundedCornerShape(6.dp))
                             .border(1.dp, Color(0xFF1E2833), RoundedCornerShape(6.dp))
                             .pointerInput(engine) {
@@ -1731,8 +1858,12 @@ fun ConsoleTab(viewModel: VMViewModel, engine: VMEngine) {
                 .background(Color(0xFF040608), RoundedCornerShape(8.dp))
                 .border(1.dp, Color(0xFF1B222A), RoundedCornerShape(8.dp))
                 .clickable {
-                    focusRequester.requestFocus()
-                    keyboardController?.show()
+                    try {
+                        focusRequester.requestFocus()
+                        keyboardController?.show()
+                    } catch (_: Exception) {
+                        // Safe catch for focus requester attachment
+                    }
                 }
                 .padding(10.dp)
         ) {
@@ -1803,86 +1934,104 @@ fun ConsoleTab(viewModel: VMViewModel, engine: VMEngine) {
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        // 5. Input Field
-        if (isConnected && state == VMState.RUNNING) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                TextField(
-                    value = commandText,
-                    onValueChange = { commandText = it },
-                    textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
-                    placeholder = { Text("Tap to type with Android keyboard (Gboard)...", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = Color.DarkGray) },
-                    singleLine = true,
-                    modifier = Modifier
-                        .weight(1f)
-                        .focusRequester(focusRequester)
-                        .testTag("terminal_input"),
-                    keyboardOptions = KeyboardOptions(
-                        imeAction = ImeAction.Send,
-                        autoCorrectEnabled = false,
-                        keyboardType = KeyboardType.Ascii
-                    ),
-                    keyboardActions = KeyboardActions(
-                        onSend = {
-                            if (commandText.isNotEmpty()) {
-                                viewModel.executeConsoleCommand(commandText)
-                                commandText = ""
-                            } else {
-                                viewModel.executeConsoleCommand("")
-                            }
-                        },
-                        onDone = {
-                            if (commandText.isNotEmpty()) {
-                                viewModel.executeConsoleCommand(commandText)
-                                commandText = ""
-                            } else {
-                                viewModel.executeConsoleCommand("")
-                            }
-                        },
-                        onGo = {
-                            if (commandText.isNotEmpty()) {
-                                viewModel.executeConsoleCommand(commandText)
-                                commandText = ""
-                            } else {
-                                viewModel.executeConsoleCommand("")
-                            }
-                        },
-                        onNext = {
-                            if (commandText.isNotEmpty()) {
-                                viewModel.executeConsoleCommand(commandText)
-                                commandText = ""
-                            } else {
-                                viewModel.executeConsoleCommand("")
-                            }
-                        }
-                    ),
-                    colors = TextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.LightGray,
-                        focusedContainerColor = Color(0xFF0D1217),
-                        unfocusedContainerColor = Color(0xFF0D1217),
-                        focusedIndicatorColor = MaterialTheme.colorScheme.primary,
-                        unfocusedIndicatorColor = Color.Transparent
+        // 5. Input Field (Always attached to focusRequester for zero-crash Android Keyboard typing)
+        val isInputActive = isConnected && state.isActive()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .imePadding(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            TextField(
+                value = commandText,
+                onValueChange = { commandText = it },
+                textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
+                placeholder = {
+                    Text(
+                        if (isInputActive) "Tap to type with Android keyboard (Gboard)..." else "VM stopped or starting (Keyboard available on run)...",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        color = Color.DarkGray
                     )
-                )
-
-                Button(
-                    onClick = {
+                },
+                singleLine = true,
+                enabled = isInputActive,
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(focusRequester)
+                    .testTag("terminal_input"),
+                keyboardOptions = KeyboardOptions(
+                    imeAction = ImeAction.Send,
+                    autoCorrectEnabled = false,
+                    keyboardType = KeyboardType.Ascii
+                ),
+                keyboardActions = KeyboardActions(
+                    onSend = {
                         if (commandText.isNotEmpty()) {
                             viewModel.executeConsoleCommand(commandText)
                             commandText = ""
+                        } else {
+                            viewModel.executeConsoleCommand("")
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.testTag("terminal_send_btn")
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = Color.Black)
-                }
+                    onDone = {
+                        if (commandText.isNotEmpty()) {
+                            viewModel.executeConsoleCommand(commandText)
+                            commandText = ""
+                        } else {
+                            viewModel.executeConsoleCommand("")
+                        }
+                    },
+                    onGo = {
+                        if (commandText.isNotEmpty()) {
+                            viewModel.executeConsoleCommand(commandText)
+                            commandText = ""
+                        } else {
+                            viewModel.executeConsoleCommand("")
+                        }
+                    },
+                    onNext = {
+                        if (commandText.isNotEmpty()) {
+                            viewModel.executeConsoleCommand(commandText)
+                            commandText = ""
+                        } else {
+                            viewModel.executeConsoleCommand("")
+                        }
+                    }
+                ),
+                colors = TextFieldDefaults.colors(
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.LightGray,
+                    disabledTextColor = Color.Gray,
+                    focusedContainerColor = Color(0xFF0D1217),
+                    unfocusedContainerColor = Color(0xFF0D1217),
+                    disabledContainerColor = Color(0xFF070A0D),
+                    focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent
+                )
+            )
+
+            Button(
+                onClick = {
+                    if (commandText.isNotEmpty()) {
+                        viewModel.executeConsoleCommand(commandText)
+                        commandText = ""
+                    } else {
+                        viewModel.executeConsoleCommand("")
+                    }
+                },
+                enabled = isInputActive,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                modifier = Modifier.testTag("terminal_send_btn")
+            ) {
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = if (isInputActive) Color.Black else Color.Gray)
             }
-        } else {
+        }
+
+        if (!isInputActive) {
+            Spacer(modifier = Modifier.height(8.dp))
             Surface(
                 color = Color(0x22FF5252),
                 shape = RoundedCornerShape(8.dp),
@@ -3033,20 +3182,98 @@ fun VMConfigDialog(
     val memoryManager = remember { MemoryManager(context) }
     val safetyResult = memoryManager.getMemorySafetyRecommendation(ramSizeMb)
 
-    AlertDialog(
+    val isMemSafe = safetyResult !is MemoryManager.SafetyResult.Danger
+    val isKernelAuthorized = kernelImagePath.isBlank() || viewModel.diskBackend.isGuestImagePathAuthorized(kernelImagePath)
+    val isInitrdAuthorized = initramfsPath.isBlank() || viewModel.diskBackend.isGuestImagePathAuthorized(initramfsPath)
+    val isDiskAuthorized = diskImagePath.isBlank() || viewModel.diskBackend.isPathAuthorized(diskImagePath) || viewModel.diskBackend.isGuestImagePathAuthorized(diskImagePath)
+    val arePathsAuthorized = isKernelAuthorized && isInitrdAuthorized && isDiskAuthorized
+    val canSave = isMemSafe && arePathsAuthorized && name.isNotBlank()
+
+    BasicAlertDialog(
         onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = if (config == null) "Create ARM64 Linux Virtual Machine" else "Edit Hardware Configuration",
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp
-            )
-        },
-        text = {
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, Color(0xFF232D38)),
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .heightIn(max = 660.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
             ) {
+                // Dialog Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (config == null) "Create Virtual Machine" else "Edit Hardware Configuration",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp,
+                        color = Color.White
+                    )
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.Gray)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                item {
+                    Text("Select Guest OS Template", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    val osOptions = listOf(
+                        "Ubuntu 24.04 ARM64",
+                        "Windows 11 ARM64",
+                        "Kali Linux ARM64",
+                        "Debian 12 ARM64",
+                        "Alpine Linux ARM64",
+                        "Arch Linux ARM64"
+                    )
+                    osOptions.chunked(2).forEach { row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            row.forEach { option ->
+                                val isSelected = osType == option
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = {
+                                        osType = option
+                                        if (config == null) {
+                                            name = option.replace("\\s+".toRegex(), "_")
+                                            if (option.contains("Windows", ignoreCase = true)) {
+                                                if (cpuCores < 4) cpuCores = 4
+                                                if (ramSizeMb < 4096) ramSizeMb = 4096
+                                                if (diskSizeGb < 32) diskSizeGb = 64
+                                            } else {
+                                                if (cpuCores < 2) cpuCores = 2
+                                                if (ramSizeMb < 2048) ramSizeMb = 2048
+                                            }
+                                        }
+                                    },
+                                    label = { Text(option, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                                    modifier = Modifier.weight(1f).testTag("chip_os_$option")
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                    }
+                }
+
                 item {
                     OutlinedTextField(
                         value = name,
@@ -3081,29 +3308,6 @@ fun VMConfigDialog(
                                 enabled = arch.isImplementedInPhase1,
                                 modifier = Modifier.testTag("chip_arch_${arch.name}")
                             )
-                        }
-                    }
-                }
-
-                item {
-                    Text("Guest OS Template", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        val osOptions = listOf("Ubuntu 24.04 ARM64", "Debian 12 ARM64", "Linux ARM64 Generic", "Windows 11 ARM64 (Future)")
-                        osOptions.chunked(2).forEach { row ->
-                            Column(modifier = Modifier.weight(1f)) {
-                                row.forEach { option ->
-                                    val isSelected = osType == option
-                                    FilterChip(
-                                        selected = isSelected,
-                                        onClick = { osType = option },
-                                        label = { Text(option, fontSize = 10.sp) },
-                                        modifier = Modifier.fillMaxWidth().testTag("chip_os_$option")
-                                    )
-                                }
-                            }
                         }
                     }
                 }
@@ -3538,57 +3742,59 @@ fun VMConfigDialog(
                     }
                 }
             }
-        },
-        confirmButton = {
-            val isMemSafe = safetyResult !is MemoryManager.SafetyResult.Danger
-            val isKernelAuthorized = kernelImagePath.isBlank() || viewModel.diskBackend.isGuestImagePathAuthorized(kernelImagePath)
-            val isInitrdAuthorized = initramfsPath.isBlank() || viewModel.diskBackend.isGuestImagePathAuthorized(initramfsPath)
-            val isDiskAuthorized = diskImagePath.isBlank() || viewModel.diskBackend.isPathAuthorized(diskImagePath) || viewModel.diskBackend.isGuestImagePathAuthorized(diskImagePath)
-            val arePathsAuthorized = isKernelAuthorized && isInitrdAuthorized && isDiskAuthorized
-            val canSave = isMemSafe && arePathsAuthorized && name.isNotBlank()
 
-            Button(
-                onClick = {
-                    onSave(
-                        name,
-                        osType,
-                        selectedArch,
-                        cpuCores,
-                        ramSizeMb,
-                        diskSizeGb,
-                        useHardwareVirt,
-                        networkEnabled,
-                        serialEnabled,
-                        kernelImagePath,
-                        initramfsPath,
-                        kernelCmdline,
-                        consoleDevice,
-                        diskImagePath
-                    )
-                },
-                enabled = canSave,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (canSave) MaterialTheme.colorScheme.primary else Color(0xFF333333),
-                    contentColor = if (canSave) Color.Black else Color.Gray
-                ),
-                modifier = Modifier.testTag("btn_save_config")
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Bottom Action Buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    when {
-                        !isMemSafe -> "Unsafe Memory Size"
-                        !arePathsAuthorized -> "Security: Path Outside Sandbox"
-                        name.isBlank() -> "Name Required"
-                        else -> "Save Hardware"
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancel", color = Color.Gray)
                     }
-                )
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            onSave(
+                                name,
+                                osType,
+                                selectedArch,
+                                cpuCores,
+                                ramSizeMb,
+                                diskSizeGb,
+                                useHardwareVirt,
+                                networkEnabled,
+                                serialEnabled,
+                                kernelImagePath,
+                                initramfsPath,
+                                kernelCmdline,
+                                consoleDevice,
+                                diskImagePath
+                            )
+                        },
+                        enabled = canSave,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (canSave) MaterialTheme.colorScheme.primary else Color(0xFF333333),
+                            contentColor = if (canSave) Color.Black else Color.Gray
+                        ),
+                        modifier = Modifier.testTag("btn_save_config")
+                    ) {
+                        Text(
+                            when {
+                                !isMemSafe -> "Unsafe Memory Size"
+                                !arePathsAuthorized -> "Security: Path Outside Sandbox"
+                                name.isBlank() -> "Name Required"
+                                else -> if (config == null) "Create VM" else "Save Hardware"
+                            },
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
         }
-    )
+    }
 }
 
 @Composable

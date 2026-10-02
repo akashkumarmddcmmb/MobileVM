@@ -82,8 +82,18 @@ class VMEngine(
         private set
     var inputBackend: InputBackend = AndroidInputBackend()
         private set
+    var networkDevice: com.example.vm.network.VirtualNetworkDevice = com.example.vm.network.VirtualNetworkDevice()
+        private set
     var secureTerminalServer: com.example.vm.console.VMSecureTerminalServer? = null
         private set
+
+    private val _isNetworkEnabled = MutableStateFlow(config.networkEnabled)
+    val isNetworkEnabled: StateFlow<Boolean> = _isNetworkEnabled.asStateFlow()
+
+    fun setNetworkEnabled(enabled: Boolean) {
+        _isNetworkEnabled.value = enabled
+        networkDevice.setLinkUp(enabled)
+    }
 
     private val monitorScope = CoroutineScope(Dispatchers.Default + Job())
     private var monitorJob: Job? = null

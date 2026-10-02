@@ -7,6 +7,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -52,6 +54,7 @@ fun VMControlCenterScreen(
     var activeTab by remember { mutableIntStateOf(0) } // 0: Overview/Control, 1: General, 2: CPU, 3: Memory, 4: Storage, 5: Boot, 6: Network, 7: Serial, 8: Display, 9: Input, 10: USB, 11: Advanced, 12: Logs
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showForceStopDialog by remember { mutableStateOf(false) }
+    var showSnapshotDialog by remember { mutableStateOf(false) }
 
     // Mutable settings fields for configuration editing
     var nameInput by remember(config) { mutableStateOf(config.name) }
@@ -173,15 +176,26 @@ fun VMControlCenterScreen(
             VmControlActionToolbar(
                 vmState = vmState,
                 isThisVmActive = isThisVmActive,
+                engine = if (isThisVmActive) activeVM else null,
+                onToggleNetwork = { enabled -> viewModel.toggleNetworkAdapter(enabled) },
                 onStart = { viewModel.startVM(config) },
                 onPause = { viewModel.pauseVM() },
                 onResume = { viewModel.resumeVM() },
                 onStop = { viewModel.gracefulShutdownVM() },
                 onForceStop = { showForceStopDialog = true },
                 onRestart = { viewModel.restartVM() },
+                onOpenSnapshots = { showSnapshotDialog = true },
                 onOpenTerminal = onOpenTerminal,
                 onSelectTab = { tabIndex -> activeTab = tabIndex }
             )
+
+            if (showSnapshotDialog) {
+                com.example.vm.ui.components.VMSnapshotManagerDialog(
+                    config = config,
+                    viewModel = viewModel,
+                    onDismiss = { showSnapshotDialog = false }
+                )
+            }
 
             // Settings Navigation Tabs
             ScrollableTabRow(
@@ -297,6 +311,9 @@ fun VMControlCenterScreen(
                             networkModeInput = it
                             viewModel.saveFullConfig(config.copy(networkMode = it, networkEnabled = (it != "OFF")))
                             Toast.makeText(context, "Network Mode Saved!", Toast.LENGTH_SHORT).show()
+                        },
+                        onToggleLiveNetwork = { enabled ->
+                            viewModel.toggleNetworkAdapter(enabled)
                         }
                     )
                     7 -> SerialConsoleSettingsTab(
@@ -397,24 +414,30 @@ fun VmRuntimeHeaderBar(config: VMConfig, vmState: VMState, engine: VMEngine?) {
 fun VmControlActionToolbar(
     vmState: VMState,
     isThisVmActive: Boolean,
+    engine: VMEngine? = null,
+    onToggleNetwork: (Boolean) -> Unit = {},
     onStart: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
     onStop: () -> Unit,
     onForceStop: () -> Unit,
     onRestart: () -> Unit,
+    onOpenSnapshots: () -> Unit = {},
     onOpenTerminal: () -> Unit,
     onSelectTab: (Int) -> Unit
 ) {
     val isRunning = vmState == VMState.RUNNING
     val isPaused = vmState == VMState.PAUSED
+    val isNetworkActive = engine?.isNetworkEnabled?.collectAsStateWithLifecycle()?.value ?: (engine?.config?.networkEnabled ?: true)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
             .background(Color(0xFF0B0F17))
             .padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         if (!isRunning && !isPaused) {
             Button(
@@ -480,6 +503,40 @@ fun VmControlActionToolbar(
             }
         }
 
+        // Virtual Network Adapter Live Toggle Switch
+        Surface(
+            color = Color(0xFF141C26),
+            shape = RoundedCornerShape(6.dp),
+            border = BorderStroke(1.dp, Color(0xFF222F3E)),
+            modifier = Modifier.height(34.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 8.dp)
+            ) {
+                Icon(
+                    imageVector = if (isNetworkActive) Icons.Default.Wifi else Icons.Default.WifiOff,
+                    contentDescription = "Virtual Network Adapter",
+                    tint = if (isNetworkActive) Color(0xFF00E676) else Color.Gray,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = if (isNetworkActive) "NET: ON" else "NET: OFF",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isNetworkActive) Color(0xFF00E676) else Color.Gray,
+                    fontFamily = FontFamily.Monospace
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Switch(
+                    checked = isNetworkActive,
+                    onCheckedChange = onToggleNetwork,
+                    modifier = Modifier.scale(0.7f).testTag("switch_virtual_network_toolbar")
+                )
+            }
+        }
+
         Button(
             onClick = onOpenTerminal,
             enabled = isRunning,
@@ -490,6 +547,17 @@ fun VmControlActionToolbar(
             Icon(Icons.Default.Terminal, contentDescription = "Terminal", tint = Color.Black, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(4.dp))
             Text("TERMINAL", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        }
+
+        Button(
+            onClick = onOpenSnapshots,
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+            modifier = Modifier.height(34.dp).testTag("btn_vm_snapshots")
+        ) {
+            Icon(Icons.Default.CameraAlt, contentDescription = "Snapshots", tint = Color.Black, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("SNAPSHOTS", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -1026,38 +1094,83 @@ fun NetworkSettingsTab(
     config: VMConfig,
     engine: VMEngine?,
     networkMode: String,
-    onNetworkModeChange: (String) -> Unit
+    onNetworkModeChange: (String) -> Unit,
+    onToggleLiveNetwork: (Boolean) -> Unit = {}
 ) {
+    val isLiveNetworkEnabled = engine?.isNetworkEnabled?.collectAsStateWithLifecycle()?.value ?: (networkMode != "OFF" && config.networkEnabled)
+
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Virtual Network Configuration", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
 
+        // Live Network Adapter Switch Card
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF101722)),
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, if (isLiveNetworkEnabled) Color(0xFF00E676).copy(alpha = 0.4f) else Color(0xFF222F3E)),
+            modifier = Modifier.fillMaxWidth().testTag("card_live_network_adapter")
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = if (isLiveNetworkEnabled) Icons.Default.Wifi else Icons.Default.WifiOff,
+                            contentDescription = "Network Adapter",
+                            tint = if (isLiveNetworkEnabled) Color(0xFF00E676) else Color.Gray,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text("Virtual Network Adapter Access", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text(
+                                text = if (isLiveNetworkEnabled) "Link Status: CONNECTED (VirtIO-Net)" else "Link Status: DISCONNECTED (Air-Gapped)",
+                                fontSize = 10.sp,
+                                color = if (isLiveNetworkEnabled) Color(0xFF00E676) else Color.Gray
+                            )
+                        }
+                    }
+
+                    Switch(
+                        checked = isLiveNetworkEnabled,
+                        onCheckedChange = { enabled ->
+                            onToggleLiveNetwork(enabled)
+                            onNetworkModeChange(if (enabled) "NAT" else "OFF")
+                        },
+                        modifier = Modifier.testTag("switch_network_adapter_toggle")
+                    )
+                }
+
+                if (isLiveNetworkEnabled) {
+                    Surface(
+                        color = Color(0xFF0A0F16),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("• Guest IP Address: 10.0.2.15 (DHCP Assigned)", fontSize = 10.sp, color = Color.LightGray, fontFamily = FontFamily.Monospace)
+                            Text("• Virtual Gateway: 10.0.2.2 (User-Mode SLIRP)", fontSize = 10.sp, color = Color.LightGray, fontFamily = FontFamily.Monospace)
+                            Text("• DNS Nameserver: ${config.dnsServer}", fontSize = 10.sp, color = Color.LightGray, fontFamily = FontFamily.Monospace)
+                            Text("• MMIO Base: 0x0D000000 • IRQ: 5", fontSize = 9.sp, color = Color.Gray, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+                }
+            }
+        }
+
+        Text("Network Operation Mode", fontSize = 11.sp, color = Color.Gray)
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("NAT", "OFF", "USER_MODE").forEach { mode ->
                 FilterChip(
                     selected = networkMode == mode,
-                    onClick = { onNetworkModeChange(mode) },
+                    onClick = {
+                        onNetworkModeChange(mode)
+                        onToggleLiveNetwork(mode != "OFF")
+                    },
                     label = { Text(mode) }
                 )
-            }
-        }
-
-        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF141A23)), shape = RoundedCornerShape(8.dp)) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Network Status", fontSize = 11.sp, color = Color.Gray)
-                Text("Mode: $networkMode", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                if (networkMode == "OFF") {
-                    Text("State: Disabled (Air-Gapped / No NIC)", fontSize = 11.sp, color = Color.Gray)
-                } else {
-                    val isEngineRunning = engine?.state?.value == VMState.RUNNING
-                    if (isEngineRunning) {
-                        Text("State: Attached to VM (User-mode SLIRP / NAT)", fontSize = 11.sp, color = Color(0xFF00E676))
-                        Text("Guest IP: 10.0.2.15 (VirtIO-Net)", fontSize = 11.sp, color = Color.LightGray, fontFamily = FontFamily.Monospace)
-                        Text("Gateway: 10.0.2.2 • DNS: ${config.dnsServer}", fontSize = 11.sp, color = Color.LightGray, fontFamily = FontFamily.Monospace)
-                    } else {
-                        Text("State: Configured ($networkMode) — VM Inactive", fontSize = 11.sp, color = Color.LightGray)
-                        Text("Gateway: 10.0.2.2 • Configured DNS: ${config.dnsServer}", fontSize = 11.sp, color = Color.Gray, fontFamily = FontFamily.Monospace)
-                    }
-                }
             }
         }
     }

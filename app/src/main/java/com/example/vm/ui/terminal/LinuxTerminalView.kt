@@ -145,8 +145,12 @@ fun LinuxTerminalView(
                 .background(Color(0xFF040608), RoundedCornerShape(8.dp))
                 .border(1.dp, Color(0xFF141A23), RoundedCornerShape(8.dp))
                 .clickable {
-                    focusRequester.requestFocus()
-                    keyboardController?.show()
+                    try {
+                        focusRequester.requestFocus()
+                        keyboardController?.show()
+                    } catch (_: Exception) {
+                        // Safe focus check
+                    }
                 }
                 .padding(8.dp)
         ) {

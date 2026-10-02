@@ -1011,9 +1011,33 @@ fun WindowsARM64TabContent(
                     val targetDir = File(context.filesDir, "guest_os/windows_arm64").apply { mkdirs() }
                     val targetFile = File(targetDir, fileName)
 
+                    val totalSize = (validation as com.example.vm.guest.windows.WindowsValidationResult.Valid).isoInfo.sizeBytes
+                    var bytesCopied = 0L
+
                     contentResolver.openInputStream(uri)?.use { input ->
                         targetFile.outputStream().use { output ->
-                            input.copyTo(output)
+                            val buffer = ByteArray(256 * 1024) // 256 KB buffer for blazing-fast IO
+                            var bytesRead = input.read(buffer)
+                            var lastUpdate = System.currentTimeMillis()
+                            
+                            while (bytesRead != -1) {
+                                output.write(buffer, 0, bytesRead)
+                                bytesCopied += bytesRead
+                                
+                                val now = System.currentTimeMillis()
+                                if (now - lastUpdate > 300) { // Update progress in UI every 300ms
+                                    lastUpdate = now
+                                    val copiedMb = bytesCopied / (1024 * 1024)
+                                    val totalMb = totalSize / (1024 * 1024)
+                                    val percent = if (totalSize > 0) (bytesCopied * 100 / totalSize).toInt() else 0
+                                    
+                                    withContext(Dispatchers.Main) {
+                                        importStatus = "Copying Windows ARM64 ISO to private sandbox storage: $copiedMb MB / $totalMb MB ($percent%)..."
+                                    }
+                                }
+                                kotlinx.coroutines.yield() // Cooperative yielding to allow UI rendering and touch events to prevent ANR!
+                                bytesRead = input.read(buffer)
+                            }
                         }
                     }
 

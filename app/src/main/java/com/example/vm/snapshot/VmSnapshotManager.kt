@@ -122,6 +122,7 @@ class VmSnapshotManager(
 
             // 6. Record in Database
             val entity = VmSnapshot(
+                id = 0L,
                 diskId = 0L,
                 vmId = vmConfig.id,
                 snapshotName = snapshotName,
