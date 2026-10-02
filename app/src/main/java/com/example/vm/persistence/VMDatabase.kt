@@ -14,15 +14,22 @@ import com.example.vm.storage.VmDiskDao
 import com.example.vm.storage.VmSnapshot
 import com.example.vm.storage.VmSnapshotDao
 
+import com.example.vm.sysboot.data.*
+
 @Database(
     entities = [
         VMConfig::class,
         VmDisk::class,
         VmSnapshot::class,
         VmBackup::class,
-        StorageOperationLog::class
+        StorageOperationLog::class,
+        BootEntryEntity::class,
+        DiagnosticResultEntity::class,
+        SecurityAuditEntity::class,
+        CSourceModuleEntity::class,
+        BootFailureSimulationEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class VMDatabase : RoomDatabase() {
@@ -31,6 +38,11 @@ abstract class VMDatabase : RoomDatabase() {
     abstract fun vmSnapshotDao(): VmSnapshotDao
     abstract fun vmBackupDao(): VmBackupDao
     abstract fun storageOperationLogDao(): StorageOperationLogDao
+    abstract fun bootEntryDao(): BootEntryDao
+    abstract fun diagnosticDao(): DiagnosticDao
+    abstract fun securityDao(): SecurityDao
+    abstract fun sourceModuleDao(): SourceModuleDao
+    abstract fun failureSimulationDao(): FailureSimulationDao
 
     companion object {
         @Volatile

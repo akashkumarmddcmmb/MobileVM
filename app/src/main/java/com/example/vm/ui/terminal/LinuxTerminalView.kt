@@ -58,6 +58,7 @@ fun LinuxTerminalView(
     var commandInput by remember { mutableStateOf("") }
     var isCtrlActive by remember { mutableStateOf(false) }
     var isAltActive by remember { mutableStateOf(false) }
+    var isDirectImeMode by remember { mutableStateOf(true) }
 
     val verticalScroll = rememberScrollState()
     val horizontalScroll = rememberScrollState()
@@ -240,12 +241,26 @@ fun LinuxTerminalView(
                 engine?.serialConsole?.sendRawBytes("\u001B[C".toByteArray())
             }
 
+            SpecialKeyButton(if (isDirectImeMode) "IME: Direct (Termux)" else "IME: Line Mode") {
+                isDirectImeMode = !isDirectImeMode
+            }
+
             SpecialKeyButton("Clear") {
                 engine?.serialConsole?.clear()
             }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
+
+        if (isDirectImeMode && isRunning) {
+            // Real-time PTY / Termux-style IME Input Bridge Surface
+            RealtimeTerminalInputSurface(
+                engine = engine,
+                isCtrlActive = isCtrlActive,
+                isAltActive = isAltActive,
+                modifier = Modifier.height(1.dp).testTag("realtime_terminal_input_surface")
+            )
+        }
 
         // Direct Console Keystroke Input Field
         val sendCurrentCommand = {

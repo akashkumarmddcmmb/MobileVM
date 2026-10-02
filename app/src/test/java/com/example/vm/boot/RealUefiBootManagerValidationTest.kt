@@ -74,6 +74,10 @@ class RealUefiBootManagerValidationTest {
         val disksDir = File(context.filesDir, "disks").apply { mkdirs() }
         val diskFile = File(disksDir, "esp_test_disk.img").apply { writeBytes(ByteArray(2 * 1024 * 1024)) }
 
+        val espDir = File(context.filesDir, "esp_mounts/${diskFile.nameWithoutExtension}_esp/EFI/Microsoft/Boot").apply { mkdirs() }
+        File(espDir, "bootmgfw.efi").writeText("MZ_ARM64_EFI_LOADER")
+        File(espDir, "BCD").writeText("WINDOWS_BCD_REGISTRY")
+
         val res = EfiSystemPartition.inspectPartition(context, diskFile.absolutePath, "\\EFI\\Microsoft\\Boot\\bootmgfw.efi")
         assertTrue(res.diskExists)
         assertTrue(res.espExists)
@@ -89,7 +93,11 @@ class RealUefiBootManagerValidationTest {
         val disksDir = File(context.filesDir, "disks").apply { mkdirs() }
         val diskFile = File(disksDir, "bcd_test_disk.img").apply { writeBytes(ByteArray(2 * 1024 * 1024)) }
 
-        // Trigger ESP layout creation
+        val espDir = File(context.filesDir, "esp_mounts/${diskFile.nameWithoutExtension}_esp/EFI/Microsoft/Boot").apply { mkdirs() }
+        File(espDir, "bootmgfw.efi").writeText("MZ_ARM64_EFI_LOADER")
+        File(espDir, "BCD").writeText("WINDOWS_BCD_REGISTRY")
+
+        // Trigger ESP layout inspection
         EfiSystemPartition.inspectPartition(context, diskFile.absolutePath)
 
         val bcdRes = WindowsBcdManager.validateBcd(context, diskFile.absolutePath)

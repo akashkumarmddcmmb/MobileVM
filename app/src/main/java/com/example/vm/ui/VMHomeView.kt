@@ -91,6 +91,8 @@ fun VMHomeView(
     viewModel: VMViewModel,
     modifier: Modifier = Modifier
 ) {
+    val sysBootViewModel: com.example.vm.sysboot.viewmodel.SysBootViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    var activeSysBootScreen by remember { mutableStateOf<String?>(null) }
     var selectedTab by remember { mutableStateOf(0) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var showCustomHardwareConfig by remember { mutableStateOf(false) }
@@ -100,6 +102,51 @@ fun VMHomeView(
     var showLicenseScreen by remember { mutableStateOf(false) }
     var showTopMenu by remember { mutableStateOf(false) }
     var showGlobalSettingsDialog by remember { mutableStateOf(false) }
+
+    if (activeSysBootScreen != null) {
+        val screenTitle = when (activeSysBootScreen) {
+            "BOOT_MGR" -> "UEFI Boot Entry Manager"
+            "BOOT_CHAIN" -> "Boot Chain & Failure Matrix"
+            "SOURCE" -> "C Source Code Studio"
+            "DIAG" -> "Hardware & Memory Diagnostics"
+            "PARTITION" -> "Storage & ESP Partition Manager"
+            "SECURITY" -> "Security, Keys & TPM 2.0"
+            "ACPI" -> "ACPI Tables & ASL Disassembler"
+            "RECOVERY" -> "Startup Recovery Hub"
+            "TREE" -> "System Architecture & File Tree"
+            else -> "SysBoot Suite"
+        }
+
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text(screenTitle, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White) },
+                    navigationIcon = {
+                        IconButton(onClick = { activeSysBootScreen = null }, modifier = Modifier.testTag("btn_close_sysboot_screen")) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0F141C))
+                )
+            },
+            containerColor = MaterialTheme.colorScheme.background
+        ) { innerPad ->
+            Box(modifier = Modifier.fillMaxSize().padding(innerPad)) {
+                when (activeSysBootScreen) {
+                    "BOOT_MGR" -> com.example.vm.sysboot.ui.SysBootBootManagerScreen(sysBootViewModel)
+                    "BOOT_CHAIN" -> com.example.vm.sysboot.ui.SysBootBootChainSimulatorScreen(sysBootViewModel)
+                    "SOURCE" -> com.example.vm.sysboot.ui.SysBootSourceCodeStudioScreen(sysBootViewModel)
+                    "DIAG" -> com.example.vm.sysboot.ui.SysBootDiagnosticsScreen(sysBootViewModel)
+                    "PARTITION" -> com.example.vm.sysboot.ui.SysBootPartitionScreen(sysBootViewModel)
+                    "SECURITY" -> com.example.vm.sysboot.ui.SysBootSecurityTpmScreen(sysBootViewModel)
+                    "ACPI" -> com.example.vm.sysboot.ui.SysBootAcpiFirmwareScreen(sysBootViewModel)
+                    "RECOVERY" -> com.example.vm.sysboot.ui.SysBootRecoveryHubScreen(sysBootViewModel)
+                    "TREE" -> com.example.vm.sysboot.ui.SysBootProjectTreeScreen(sysBootViewModel)
+                }
+            }
+        }
+        return
+    }
 
     if (showCustomHardwareConfig) {
         VMCustomHardwareConfigScreen(
@@ -240,6 +287,87 @@ fun VMHomeView(
                                     showCustomHardwareConfig = true
                                 },
                                 modifier = Modifier.testTag("menu_custom_hardware_config")
+                            )
+                            DropdownMenuItem(
+                                text = { Text("UEFI Boot Entry Manager") },
+                                leadingIcon = { Icon(Icons.Default.PowerSettingsNew, contentDescription = null, tint = Color(0xFF00E676)) },
+                                onClick = {
+                                    showTopMenu = false
+                                    activeSysBootScreen = "BOOT_MGR"
+                                },
+                                modifier = Modifier.testTag("menu_boot_manager")
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Boot Chain & Failure Matrix") },
+                                leadingIcon = { Icon(Icons.Default.BugReport, contentDescription = null, tint = Color(0xFFFFB300)) },
+                                onClick = {
+                                    showTopMenu = false
+                                    activeSysBootScreen = "BOOT_CHAIN"
+                                },
+                                modifier = Modifier.testTag("menu_boot_chain")
+                            )
+                            DropdownMenuItem(
+                                text = { Text("C Source Code Studio") },
+                                leadingIcon = { Icon(Icons.Default.Code, contentDescription = null, tint = Color(0xFF38BDF8)) },
+                                onClick = {
+                                    showTopMenu = false
+                                    activeSysBootScreen = "SOURCE"
+                                },
+                                modifier = Modifier.testTag("menu_c_studio")
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Hardware & Memory Diagnostics") },
+                                leadingIcon = { Icon(Icons.Default.Memory, contentDescription = null, tint = Color(0xFFA855F7)) },
+                                onClick = {
+                                    showTopMenu = false
+                                    activeSysBootScreen = "DIAG"
+                                },
+                                modifier = Modifier.testTag("menu_sys_diag")
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Storage & ESP Partition Manager") },
+                                leadingIcon = { Icon(Icons.Default.FolderSpecial, contentDescription = null, tint = Color(0xFF0284C7)) },
+                                onClick = {
+                                    showTopMenu = false
+                                    activeSysBootScreen = "PARTITION"
+                                },
+                                modifier = Modifier.testTag("menu_esp_partition")
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Security, Keys & TPM 2.0") },
+                                leadingIcon = { Icon(Icons.Default.Security, contentDescription = null, tint = Color(0xFF10B981)) },
+                                onClick = {
+                                    showTopMenu = false
+                                    activeSysBootScreen = "SECURITY"
+                                },
+                                modifier = Modifier.testTag("menu_sys_security")
+                            )
+                            DropdownMenuItem(
+                                text = { Text("ACPI Tables & ASL Disassembler") },
+                                leadingIcon = { Icon(Icons.Default.DeveloperBoard, contentDescription = null, tint = Color(0xFF00E5FF)) },
+                                onClick = {
+                                    showTopMenu = false
+                                    activeSysBootScreen = "ACPI"
+                                },
+                                modifier = Modifier.testTag("menu_acpi_tables")
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Startup Recovery Hub") },
+                                leadingIcon = { Icon(Icons.Default.Build, contentDescription = null, tint = Color(0xFFFF5252)) },
+                                onClick = {
+                                    showTopMenu = false
+                                    activeSysBootScreen = "RECOVERY"
+                                },
+                                modifier = Modifier.testTag("menu_recovery_hub")
+                            )
+                            DropdownMenuItem(
+                                text = { Text("System Architecture & File Tree") },
+                                leadingIcon = { Icon(Icons.Default.FolderOpen, contentDescription = null, tint = Color(0xFFFFB300)) },
+                                onClick = {
+                                    showTopMenu = false
+                                    activeSysBootScreen = "TREE"
+                                },
+                                modifier = Modifier.testTag("menu_proj_tree")
                             )
                             DropdownMenuItem(
                                 text = { Text("Storage Manager") },

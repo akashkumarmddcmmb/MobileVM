@@ -55,17 +55,6 @@ object EfiSystemPartition {
         val espDir = File(context.filesDir, "esp_mounts/${diskFile.nameWithoutExtension}_esp")
         if (!espDir.exists()) {
             espDir.mkdirs()
-            // Create mock/placeholder ESP layout if disk contains Windows/Linux signature
-            val efiDir = File(espDir, "EFI")
-            val msBootDir = File(efiDir, "Microsoft/Boot")
-            msBootDir.mkdirs()
-            val bootDir = File(efiDir, "BOOT")
-            bootDir.mkdirs()
-
-            // Dummy bootmgfw.efi and BCD file for valid disk image emulation
-            File(msBootDir, "bootmgfw.efi").writeText("EFI_BOOTMGFW_HEADER_ARM64")
-            File(msBootDir, "BCD").writeText("WINDOWS_BCD_REGISTRY_HIVE_HEADER")
-            File(bootDir, "BOOTAA64.EFI").writeText("LINUX_EFI_LOADER_HEADER_ARM64")
         }
 
         val normalizedPath = expectedEfiPath.replace("\\", "/").trimStart('/')
