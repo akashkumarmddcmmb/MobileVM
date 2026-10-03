@@ -93,6 +93,7 @@ fun VMHomeView(
 ) {
     val sysBootViewModel: com.example.vm.sysboot.viewmodel.SysBootViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     var activeSysBootScreen by remember { mutableStateOf<String?>(null) }
+    var showOSInstallerWizard by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf(0) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var showCustomHardwareConfig by remember { mutableStateOf(false) }
@@ -102,6 +103,13 @@ fun VMHomeView(
     var showLicenseScreen by remember { mutableStateOf(false) }
     var showTopMenu by remember { mutableStateOf(false) }
     var showGlobalSettingsDialog by remember { mutableStateOf(false) }
+
+    if (showOSInstallerWizard) {
+        com.example.vm.ui.components.OSInstallerWizardDialog(
+            viewModel = viewModel,
+            onDismiss = { showOSInstallerWizard = false }
+        )
+    }
 
     if (activeSysBootScreen != null) {
         val screenTitle = when (activeSysBootScreen) {
@@ -278,6 +286,15 @@ fun VMHomeView(
                             expanded = showTopMenu,
                             onDismissRequest = { showTopMenu = false }
                         ) {
+                            DropdownMenuItem(
+                                text = { Text("Install New Linux / Windows OS") },
+                                leadingIcon = { Icon(Icons.Default.Download, contentDescription = null, tint = Color(0xFF00E5FF)) },
+                                onClick = {
+                                    showTopMenu = false
+                                    showOSInstallerWizard = true
+                                },
+                                modifier = Modifier.testTag("menu_install_os_wizard")
+                            )
                             DropdownMenuItem(
                                 text = { Text("Custom Hardware Configurator") },
                                 leadingIcon = { Icon(Icons.Default.Tune, contentDescription = null, tint = Color(0xFF00E5FF)) },
